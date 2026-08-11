@@ -321,20 +321,21 @@ st.title("📊 Aplikasi Rekap Transaksi & LDK")
 st.markdown("---")
 
 # ============================================================
-# BAGIAN ATAS: PROGRAM 1
+# BAGIAN ATAS: UNDUH & GABUNG
 # ============================================================
-st.header("1. Yahoo IMAP Attachment Downloader")
+st.header("Yahoo IMAP Attachment Downloader")
 st.write("Fitur untuk mencari, mengunduh, dan menggabungkan lampiran Excel (Rekap Bursa) dari email Yahoo secara otomatis.")
 
 col1, col2 = st.columns(2)
 with col1:
     email_acc = st.text_input("Akun Email Yahoo", value="dealingccf_bbj@yahoo.com")
-    app_pass = st.text_input("Password Aplikasi", type="password", value="onxapxswumspptpt")
+    # Password ditetapkan di dalam backend, tidak ditampilkan di layar
+    app_pass = "krrrgdmbdoxorfbv"
 with col2:
     subject_input = st.text_input("Masukkan Subjek (pisahkan koma jika banyak)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
     imap_server = st.text_input("Server IMAP", value="imap.mail.yahoo.com")
 
-if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
+if st.button("Mulai Proses Unduh & Gabung", type="primary"):
     if not subject_input:
         st.warning("Pencarian dibatalkan karena subjek kosong.")
     else:
@@ -372,7 +373,6 @@ if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
             if total_emails == 0:
                 st.error("Tidak ada satupun email yang ditemukan dari semua kriteria pencarian.")
             else:
-                # FIX SCOPE: Deklarasi global agar aman dipanggil dalam Streamlit
                 global download_count
                 download_count = 0
                 downloaded_dates = set()
@@ -454,7 +454,7 @@ if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
                     
                     shutil.make_archive(dynamic_zip_filename.replace('.zip', ''), 'zip', DOWNLOAD_DIR)
                     with open(dynamic_zip_filename, "rb") as f:
-                        st.download_button("📥 Unduh Hasil ZIP Program 1", data=f, file_name=dynamic_zip_filename, mime="application/zip")
+                        st.download_button("📥 Unduh Hasil ZIP", data=f, file_name=dynamic_zip_filename, mime="application/zip")
                 else:
                     st.warning("Email ditemukan, tetapi tidak ada file lampiran di dalamnya (atau telah terfilter).")
 
@@ -470,9 +470,9 @@ if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
 st.markdown("---")
 
 # ============================================================
-# BAGIAN BAWAH: PROGRAM 2
+# BAGIAN BAWAH: EKSTRAK & REKAP
 # ============================================================
-st.header("2. Rekap Lot LDK (Pengecualian File GABUNGAN)")
+st.header("Rekap Lot LDK")
 st.write("Fitur untuk memproses file ZIP berisi Rekap Transaksi, memetakannya ke List ACC, dan menuliskannya ke Template LDK.")
 
 col_a, col_b, col_c = st.columns(3)
@@ -483,7 +483,7 @@ with col_b:
 with col_c:
     tpl_file_upload = st.file_uploader("3. Upload Template Output (.xlsx)", type=["xlsx"])
 
-if st.button("Mulai Proses Ekstrak & Rekap (Program 2)", type="primary"):
+if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
     if not (zip_file_upload and acc_file_upload and tpl_file_upload):
         st.error("Harap unggah ketiga file (ZIP Rekap, List ACC, Template Output) terlebih dahulu.")
     else:
@@ -625,6 +625,6 @@ if st.button("Mulai Proses Ekstrak & Rekap (Program 2)", type="primary"):
                     else:
                         st.success("✅ Semua angka cocok dan berhasil divalidasi!")
                         with open(file_output, "rb") as f:
-                            st.download_button("📥 Unduh Hasil Excel Program 2", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            st.download_button("📥 Unduh Hasil Excel", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
             st.error(f"Terjadi kesalahan saat memproses Rekap LDK: {e}")
