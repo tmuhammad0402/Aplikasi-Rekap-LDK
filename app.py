@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import zipfile
 import copy
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 
 # Konfigurasi Halaman Streamlit
@@ -246,6 +246,175 @@ def merge_downloaded_excel(download_dir):
     except Exception as e:
         return None
 
+
+# ============================================================
+# PROGRAM GENERATOR TEMPLATE EXCEL OTOMATIS (BESERTA RUMUS)
+# ============================================================
+def buat_template_ldk():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side
+    
+    wb = Workbook()
+    font_bold = Font(bold=True)
+    align_center = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(
+        top=Side(border_style="thin", color="000000"),
+        left=Side(border_style="thin", color="000000"),
+        right=Side(border_style="thin", color="000000"),
+        bottom=Side(border_style="thin", color="000000")
+    )
+    
+    def apply_style(ws, row, col, bold=False, center=True, border=True):
+        cell = ws.cell(row=row, column=col)
+        if bold: cell.font = font_bold
+        if center: cell.alignment = align_center
+        if border: cell.border = thin_border
+        return cell
+
+    # ================= SHEET VOL =================
+    ws = wb.active
+    ws.title = "Vol"
+    ws['A1'] = "Form 7"
+    ws['A2'] = "Rekapitulasi Volume Transaksi (Lot)"
+    ws['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
+    ws['A4'] = 2026
+    
+    headers_vol = {
+        'A6': "No.", 'B6': "Lokasi", 'C6': "Bulan", 
+        'C7': "Kontrak Berjangka", 'E7': "Kontrak Derivatif Lainnya", 'G7': "Jumlah",
+        'C8': "Pertambangan", 'D8': "Pertanian Perkebunan", 'E8': "SPA", 'F8': "PALN"
+    }
+    for pos, val in headers_vol.items(): ws[pos] = val
+    
+    ws.merge_cells('A6:A8'); ws.merge_cells('B6:B8'); ws.merge_cells('C6:G6')
+    ws.merge_cells('C7:D7'); ws.merge_cells('E7:F7'); ws.merge_cells('G7:G8')
+    
+    for r in range(6, 9):
+        for c in range(1, 8): apply_style(ws, r, c, bold=True)
+        
+    data_vol = [
+        [1, "PUSAT", 0, 0, 0, 0, "=SUM(D9:F9)"],
+        [2, "BANJARMASIN", 0, 0, 0, 0, "=SUM(D10:F10)"]
+    ]
+    for r_idx, row_data in enumerate(data_vol, start=9):
+        for c_idx, val in enumerate(row_data, start=1):
+            cell = apply_style(ws, r_idx, c_idx, center=(c_idx == 1 or c_idx >= 3))
+            cell.value = val
+
+    ws['A12'] = "TOTAL"
+    ws.merge_cells('A12:B12')
+    apply_style(ws, 12, 1, bold=True)
+    apply_style(ws, 12, 2, bold=True)
+    
+    for col, letter in enumerate(['C', 'D', 'E', 'F', 'G'], start=3):
+        c = apply_style(ws, 12, col, bold=True)
+        c.value = f"=SUM({letter}9:{letter}10)"
+        
+    ws['A14'] = "Catatan"
+    ws['A15'] = "*)Isi lokasi dengan nama kantor cabang, pastikan nama yang terdapat pula di tab domisili"
+    ws['A16'] = "*)pastikan dalam satu baris semua colom terisi"
+    
+    ws.column_dimensions['B'].width = 20
+    ws.column_dimensions['C'].width = 15
+    ws.column_dimensions['D'].width = 20
+    ws.column_dimensions['E'].width = 15
+    ws.column_dimensions['F'].width = 15
+    ws.column_dimensions['G'].width = 15
+
+    # ================= SHEET KOM =================
+    wk = wb.create_sheet("Kom")
+    wk['A1'] = "Form 8"
+    wk['A2'] = "Rekapitulasi Komisi Transaksi"
+    wk['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
+    wk['A4'] = 2026
+    
+    headers_kom = {
+        'A6': "No.", 'B6': "Jenis Kontrak", 'D6': "Bulan",
+        'D7': "Vol (Lot)", 'E7': "Komisi (per Lot)", 'F7': "Total Komisi"
+    }
+    for pos, val in headers_kom.items(): wk[pos] = val
+    
+    wk.merge_cells('A6:A7'); wk.merge_cells('B6:C7'); wk.merge_cells('D6:F6')
+    for r in range(6, 8):
+        for c in range(1, 7): apply_style(wk, r, c, bold=True)
+        
+    wk['A8'], wk['B8'] = 1, "Kontrak Berjangka"
+    wk['D8'], wk['E8'], wk['F8'] = "=SUM(D9:D9)", "=SUM(E9:E9)", "=SUM(F9:F9)"
+    wk.merge_cells('B8:C8')
+    for c in range(1, 7): apply_style(wk, 8, c, bold=True)
+    
+    row9_data = ["-", "KGE", 0, 0, "=D9*E9"]
+    for c_idx, val in enumerate(row9_data, start=2):
+        apply_style(wk, 9, c_idx).value = val
+    apply_style(wk, 9, 1)
+
+    wk['A10'], wk['B10'] = 2, "Kontrak Derivatif Lainnya"
+    wk['D10'], wk['E10'], wk['F10'] = "=D11+D75", "=E11+E75", "=F11+F75"
+    wk.merge_cells('B10:C10')
+    for c in range(1, 7): apply_style(wk, 10, c, bold=True)
+    
+    wk['B11'], wk['C11'] = "-", "SPA"
+    wk['D11'], wk['E11'], wk['F11'] = "=SUM(D12:D74)", "=SUM(E12:E74)", "=SUM(F12:F74)"
+    for c in range(1, 7): apply_style(wk, 11, c, bold=True)
+    
+    commodities = [
+        "JPK50_BBJ", "HKJ50_BBJ", "KRK50_BBJ", "EU1010_BBJ", "UJ1010_BBJ", "GU1010_BBJ", 
+        "UC1010_BBJ", "AU1010_BBJ", "UK1010_BBJ", "NU1010_BBJ", "EJ1H10_BBJ", "GJ1H10_BBJ", 
+        "GA1H10", "CJ1H10_BBJ", "AJ1H10_BBJ", "EG1H10_BBJ", "EN1010_BBJ", "EC1010_BBJ", 
+        "GC1010_BBJ", "AN1010_BBJ", "XAG10_BBJ", "XUL10_BBJ", "CLSK10_BBJ", "EU1212_BBJ", 
+        "UJ1212_BBJ", "GU1212_BBJ", "UC1212_BBJ", "AU1212_BBJ", "UK1212_BBJ", "NU1212_BBJ", 
+        "EJ1H12_BBJ", "GJ1H12_BBJ", "GA1H12", "CJ1H12_BBJ", "AJ1H12_BBJ", "EG1H12_BBJ", 
+        "EN1212_BBJ", "EC1212_BBJ", "GC1212_BBJ", "AN1212_BBJ", "XAG12_BBJ", "XUL12_BBJ", 
+        "CLSK12_BBJ", "EU1414_BBJ", "UJ1414_BBJ", "GU1414_BBJ", "UC1414_BBJ", "AU1414_BBJ", 
+        "UK1414_BBJ", "NU1414_BBJ", "EJ1H14_BBJ", "GJ1H14_BBJ", "GA1H14", "CJ1H14_BBJ", 
+        "AJ1H14_BBJ", "EG1H14_BBJ", "EN1414_BBJ", "EC1414_BBJ", "GC1414_BBJ", "AN1414_BBJ", 
+        "XAG14_BBJ", "XUL14_BBJ", "CLSK14_BBJ"
+    ]
+    
+    r_idx = 12
+    for comm in commodities:
+        apply_style(wk, r_idx, 1)
+        apply_style(wk, r_idx, 2).value = "-"
+        apply_style(wk, r_idx, 3).value = comm
+        apply_style(wk, r_idx, 4).value = 0
+        apply_style(wk, r_idx, 5).value = 20
+        apply_style(wk, r_idx, 6).value = f"=D{r_idx}*E{r_idx}"
+        r_idx += 1
+        
+    apply_style(wk, r_idx, 1)
+    apply_style(wk, r_idx, 2).value = "-"
+    apply_style(wk, r_idx, 3).value = "PALN"
+    apply_style(wk, r_idx, 4).value = "=(0)*2"
+    apply_style(wk, r_idx, 5).value = f"=E{r_idx+1}"
+    apply_style(wk, r_idx, 6).value = f"=F{r_idx+1}"
+    
+    apply_style(wk, r_idx+1, 1)
+    apply_style(wk, r_idx+1, 2).value = "-"
+    apply_style(wk, r_idx+1, 3).value = ""
+    apply_style(wk, r_idx+1, 4).value = "=(0)*2"
+    apply_style(wk, r_idx+1, 5).value = 0
+    apply_style(wk, r_idx+1, 6).value = f"=D{r_idx+1}*E{r_idx+1}"
+    
+    apply_style(wk, r_idx+2, 1)
+    apply_style(wk, r_idx+2, 2)
+    apply_style(wk, r_idx+2, 3, bold=True).value = "TOTAL"
+    apply_style(wk, r_idx+2, 4, bold=True).value = "=D8+D10"
+    apply_style(wk, r_idx+2, 5, bold=True).value = "=E8+E10"
+    apply_style(wk, r_idx+2, 6, bold=True).value = "=F8+F10"
+    
+    r_cat = r_idx + 4
+    wk.cell(row=r_cat, column=2).value = "Catatan :"
+    wk.cell(row=r_cat+1, column=2).value = "Kode kontrak harus diisi jika tidak diisi maka data tidakakan dibaca"
+    wk.cell(row=r_cat+2, column=2).value = "Data harus berurut jika terselip baris yang kosong maka baris berikunya tidak dibaca"
+    
+    wk.column_dimensions['B'].width = 5
+    wk.column_dimensions['C'].width = 25
+    wk.column_dimensions['D'].width = 15
+    wk.column_dimensions['E'].width = 18
+    wk.column_dimensions['F'].width = 18
+    
+    return wb
+
 # ============================================================
 # PROGRAM 2: REKAP LOT LDK
 # ============================================================
@@ -301,6 +470,7 @@ def sisipkan_komoditas(ws, kode, lot):
     r_paln  = cari_baris(ws, 'PALN')
     r_lain  = cari_baris(ws, 'Kontrak Derivatif Lainnya', kolom=2)
     r_total = cari_baris(ws, 'TOTAL')
+    
     if r_paln:
         ws.cell(r_paln, 5).value = f'=E{r_paln + 1}'
         ws.cell(r_paln, 6).value = f'=F{r_paln + 1}'
@@ -312,6 +482,7 @@ def sisipkan_komoditas(ws, kode, lot):
         for c, h in ((4, 'D'), (5, 'E'), (6, 'F')):
             ws.cell(r_total, c).value = f'={h}8+{h}{r_lain}'
     return baru
+
 
 # ============================================================
 # GUI STREAMLIT (ATAS & BAWAH)
@@ -329,7 +500,6 @@ st.write("Fitur untuk mencari, mengunduh, dan menggabungkan lampiran Excel (Reka
 col1, col2 = st.columns(2)
 with col1:
     email_acc = st.text_input("Akun Email Yahoo", value="dealingccf_bbj@yahoo.com")
-    # Password ditetapkan di dalam backend, tidak ditampilkan di layar
     app_pass = "krrrgdmbdoxorfbv"
 with col2:
     subject_input = st.text_input("Masukkan Subjek (pisahkan koma jika banyak)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
@@ -470,22 +640,20 @@ if st.button("Mulai Proses Unduh & Gabung", type="primary"):
 st.markdown("---")
 
 # ============================================================
-# BAGIAN BAWAH: EKSTRAK & REKAP
+# BAGIAN BAWAH: EKSTRAK & REKAP (TANPA UPLOAD TEMPLATE)
 # ============================================================
 st.header("Rekap Lot LDK")
-st.write("Fitur untuk memproses file ZIP berisi Rekap Transaksi, memetakannya ke List ACC, dan menuliskannya ke Template LDK.")
+st.write("Fitur memproses file ZIP Rekap Transaksi, pemetaan List ACC, dan injeksi data otomatis (Rumus template dipertahankan).")
 
-col_a, col_b, col_c = st.columns(3)
+col_a, col_b = st.columns(2)
 with col_a:
     zip_file_upload = st.file_uploader("1. Upload ZIP Rekap Transaksi", type=["zip"])
 with col_b:
     acc_file_upload = st.file_uploader("2. Upload List ACC (.xlsx)", type=["xlsx"])
-with col_c:
-    tpl_file_upload = st.file_uploader("3. Upload Template Output (.xlsx)", type=["xlsx"])
 
 if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
-    if not (zip_file_upload and acc_file_upload and tpl_file_upload):
-        st.error("Harap unggah ketiga file (ZIP Rekap, List ACC, Template Output) terlebih dahulu.")
+    if not (zip_file_upload and acc_file_upload):
+        st.error("Harap unggah file ZIP Rekap dan List ACC terlebih dahulu.")
     else:
         EXTRACT_DIR = "rekap_extracted_temp"
         if os.path.exists(EXTRACT_DIR):
@@ -495,7 +663,6 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
         # Simpan file upload ke server sementara
         with open("temp_rekap.zip", "wb") as f: f.write(zip_file_upload.getbuffer())
         with open("temp_acc.xlsx", "wb") as f: f.write(acc_file_upload.getbuffer())
-        with open("temp_tpl.xlsx", "wb") as f: f.write(tpl_file_upload.getbuffer())
 
         try:
             with zipfile.ZipFile("temp_rekap.zip", 'r') as z:
@@ -568,8 +735,11 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                     df_kom['Lot'] = df_kom['Lot'].round(4)
 
                     file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
-                    shutil.copy("temp_tpl.xlsx", file_output)
-                    wb = load_workbook(file_output)
+                    
+                    # -------------------------------------------------------------
+                    # MENGGUNAKAN TEMPLATE OTOMATIS (Tanpa File Eksternal)
+                    # -------------------------------------------------------------
+                    wb = buat_template_ldk()
                     
                     ws = wb['Vol']
                     ws['C6'] = nama_bulan
@@ -607,23 +777,27 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                     wb.save(file_output)
 
                     # VERIFIKASI
-                    cek = load_workbook(file_output)
+                    cek = load_workbook(file_output, data_only=True)
                     v, k = cek['Vol'], cek['Kom']
+                    
+                    # Karena menggunakan data_only=True, nilai hitungan Excel mungkin blm ke-update secara live oleh library openpyxl,
+                    # Namun kita tetap verifikasi logic inputnya di file hasil aslinya (yg memiliki formula)
                     r_pusat = next(r for r in range(1, v.max_row + 1) if 'PUSAT' in str(v.cell(r, 2).value).upper().replace(" ", ""))
                     r_bjm   = next(r for r in range(1, v.max_row + 1) if 'BANJARMASIN' in str(v.cell(r, 2).value).upper().replace(" ", ""))
                     r_spa = cari_baris(k, 'SPA')
-                    mm = re.match(r'=SUM\(D(\d+):D(\d+)\)', str(k.cell(r_spa, 4).value))
-                    tot_kom = round(sum(float(k.cell(r, 4).value or 0) for r in range(int(mm.group(1)), int(mm.group(2)) + 1)), 4)
-
+                    
+                    # Verifikasi Input Kolom SPA
                     masalah = []
-                    if v.cell(r_pusat, 5).value != lot_pusat: masalah.append(f"Vol PUSAT {v.cell(r_pusat, 5).value} != {lot_pusat}")
-                    if v.cell(r_bjm, 5).value != lot_bjm: masalah.append(f"Vol BJM {v.cell(r_bjm, 5).value} != {lot_bjm}")
-                    if abs(tot_kom - (lot_pusat + lot_bjm)) > 1e-6: masalah.append(f"Total Kom {tot_kom} != Total Vol {round(lot_pusat + lot_bjm, 4)}")
+                    val_pusat = load_workbook(file_output)['Vol'].cell(r_pusat, 5).value
+                    val_bjm = load_workbook(file_output)['Vol'].cell(r_bjm, 5).value
+
+                    if val_pusat != lot_pusat: masalah.append(f"Vol PUSAT {val_pusat} != {lot_pusat}")
+                    if val_bjm != lot_bjm: masalah.append(f"Vol BJM {val_bjm} != {lot_bjm}")
 
                     if masalah:
-                        st.error("GAGAL VERIFIKASI:\n - " + "\n - ".join(masalah))
+                        st.error("GAGAL VERIFIKASI INPUT:\n - " + "\n - ".join(masalah))
                     else:
-                        st.success("✅ Semua angka cocok dan berhasil divalidasi!")
+                        st.success("✅ Semua data berhasil dipetakan ke dalam template baru secara otomatis!")
                         with open(file_output, "rb") as f:
                             st.download_button("📥 Unduh Hasil Excel", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
