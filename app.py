@@ -246,7 +246,6 @@ def merge_downloaded_excel(download_dir):
     except Exception as e:
         return None
 
-
 # ============================================================
 # PROGRAM GENERATOR TEMPLATE EXCEL OTOMATIS (BESERTA RUMUS)
 # ============================================================
@@ -483,7 +482,6 @@ def sisipkan_komoditas(ws, kode, lot):
             ws.cell(r_total, c).value = f'={h}8+{h}{r_lain}'
     return baru
 
-
 # ============================================================
 # GUI STREAMLIT (ATAS & BAWAH)
 # ============================================================
@@ -640,7 +638,7 @@ if st.button("Mulai Proses Unduh & Gabung", type="primary"):
 st.markdown("---")
 
 # ============================================================
-# BAGIAN BAWAH: EKSTRAK & REKAP (TANPA UPLOAD TEMPLATE)
+# BAGIAN BAWAH: EKSTRAK & REKAP (TANPA UPLOAD TEMPLATE & FIX BURSA)
 # ============================================================
 st.header("Rekap Lot LDK")
 st.write("Fitur memproses file ZIP Rekap Transaksi, pemetaan List ACC, dan injeksi data otomatis (Rumus template dipertahankan).")
@@ -703,102 +701,117 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
 
                 st.info(f"Memproses {len(file_rekaps)} file rekap | Periode: {nama_bulan} {tahun or ''}")
 
-                df = pd.concat([pd.read_excel(f, sheet_name='BURSA', header=None) for f in file_rekaps], ignore_index=True)
-                df = df.sort_values(by=0, key=lambda x: x.astype(str)).reset_index(drop=True)
-                df['Commodity'] = df[COL_COMMODITY].astype(str).str.replace('\u00a0', ' ').str.strip()
-                df = df[df['Commodity'] != 'Commodity']
-                df['Lot'] = pd.to_numeric(df[COL_LOT], errors='coerce').fillna(0)
-                df['ACC'] = df.apply(ekstrak_akun, axis=1)
-                
-                total_mentah = round(float(df['Lot'].sum()), 4)
-
-                df_valid = df.dropna(subset=['ACC']).copy()
-                acc = pd.read_excel("temp_acc.xlsx", header=None)
-                acc['Login']   = acc[0].map(normalisasi_kode)
-                acc['Address'] = acc[5].map(lambda v: str(v).replace('\u00a0', ' ').strip())
-                dict_address = dict(zip(acc['Login'], acc['Address']))
-
-                df_valid['ACC']     = df_valid['ACC'].map(normalisasi_kode)
-                df_valid['Address'] = df_valid['ACC'].map(dict_address)
-
-                cocok = df_valid['Address'].notna().sum()
-                if cocok == 0:
-                    st.error("FATAL: tidak satu pun akun cocok dengan List ACC. Cek kolom A (Login) dan kolom F (address) di List_ACC.")
-                else:
-                    kond = df_valid['Address'] == ALAMAT_BANJARMASIN
-                    lot_bjm   = round(float(df_valid.loc[kond, 'Lot'].sum()), 4)
-                    lot_pusat = round(float(df_valid.loc[~kond, 'Lot'].sum()), 4)
-                    
-                    st.write(f"**Hasil Peta Akun:** PUSAT = {lot_pusat} | BANJARMASIN = {lot_bjm} | TOTAL = {round(lot_pusat + lot_bjm, 4)}")
-
-                    df_kom = df_valid.groupby('Commodity')['Lot'].sum().reset_index()
-                    df_kom['Lot'] = df_kom['Lot'].round(4)
-
-                    file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
-                    
-                    # -------------------------------------------------------------
-                    # MENGGUNAKAN TEMPLATE OTOMATIS (Tanpa File Eksternal)
-                    # -------------------------------------------------------------
-                    wb = buat_template_ldk()
-                    
-                    ws = wb['Vol']
-                    ws['C6'] = nama_bulan
-                    if tahun: ws['A4'] = tahun
-                    for row in ws.iter_rows():
-                        lok = str(row[1].value).upper().replace(" ", "")
-                        if 'PUSAT' in lok: row[4].value = lot_pusat
-                        elif 'BANJARMASIN' in lok: row[4].value = lot_bjm
-
-                    wk = wb['Kom']
-                    wk['D6'] = nama_bulan
-                    if tahun: wk['A4'] = tahun
-
-                    for _, d in df_kom.iterrows():
-                        kode = str(d['Commodity']).strip()
-                        if kode in ("nan", ""): continue
-                        lot = float(d['Lot'])
-
-                        peta = {}
-                        for r in range(2, wk.max_row + 1):
-                            k = str(wk.cell(r, 3).value).strip()
-                            if k and k.lower() != 'none': peta.setdefault(k.upper(), r)
-
-                        baris = peta.get(kode.upper())
-                        if baris is None:
-                            for k_ldk, r in peta.items():
-                                if kode.upper() in k_ldk:
-                                    baris = r
-                                    break
-                        if baris is None:
-                            baris = sisipkan_komoditas(wk, kode, lot)
+                # ---- PEMBACAAN DINAMIS SHEET BURSA ----
+                data_dfs = []
+                for f in file_rekaps:
+                    try:
+                        xls = pd.ExcelFile(f)
+                        bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
+                        
+                        if bursa_sheet:
+                            df_temp = pd.read_excel(f, sheet_name=bursa_sheet[0], header=None)
+                            data_dfs.append(df_temp)
                         else:
-                            wk.cell(baris, 4).value = lot
-
-                    wb.save(file_output)
-
-                    # VERIFIKASI
-                    cek = load_workbook(file_output, data_only=True)
-                    v, k = cek['Vol'], cek['Kom']
+                            df_temp = pd.read_excel(f, sheet_name=0, header=None)
+                            data_dfs.append(df_temp)
+                    except Exception as e:
+                        pass # Lewati jika file rusak / tidak bisa dibaca
+                
+                if not data_dfs:
+                    st.error("Data tidak dapat dibaca dari file-file rekap.")
+                else:
+                    df = pd.concat(data_dfs, ignore_index=True)
+                    df = df.sort_values(by=0, key=lambda x: x.astype(str)).reset_index(drop=True)
+                    df['Commodity'] = df[COL_COMMODITY].astype(str).str.replace('\u00a0', ' ').str.strip()
+                    df = df[df['Commodity'] != 'Commodity']
+                    df['Lot'] = pd.to_numeric(df[COL_LOT], errors='coerce').fillna(0)
+                    df['ACC'] = df.apply(ekstrak_akun, axis=1)
                     
-                    # Karena menggunakan data_only=True, nilai hitungan Excel mungkin blm ke-update secara live oleh library openpyxl,
-                    # Namun kita tetap verifikasi logic inputnya di file hasil aslinya (yg memiliki formula)
-                    r_pusat = next(r for r in range(1, v.max_row + 1) if 'PUSAT' in str(v.cell(r, 2).value).upper().replace(" ", ""))
-                    r_bjm   = next(r for r in range(1, v.max_row + 1) if 'BANJARMASIN' in str(v.cell(r, 2).value).upper().replace(" ", ""))
-                    r_spa = cari_baris(k, 'SPA')
-                    
-                    # Verifikasi Input Kolom SPA
-                    masalah = []
-                    val_pusat = load_workbook(file_output)['Vol'].cell(r_pusat, 5).value
-                    val_bjm = load_workbook(file_output)['Vol'].cell(r_bjm, 5).value
+                    total_mentah = round(float(df['Lot'].sum()), 4)
 
-                    if val_pusat != lot_pusat: masalah.append(f"Vol PUSAT {val_pusat} != {lot_pusat}")
-                    if val_bjm != lot_bjm: masalah.append(f"Vol BJM {val_bjm} != {lot_bjm}")
+                    df_valid = df.dropna(subset=['ACC']).copy()
+                    acc = pd.read_excel("temp_acc.xlsx", header=None)
+                    acc['Login']   = acc[0].map(normalisasi_kode)
+                    acc['Address'] = acc[5].map(lambda v: str(v).replace('\u00a0', ' ').strip())
+                    dict_address = dict(zip(acc['Login'], acc['Address']))
 
-                    if masalah:
-                        st.error("GAGAL VERIFIKASI INPUT:\n - " + "\n - ".join(masalah))
+                    df_valid['ACC']     = df_valid['ACC'].map(normalisasi_kode)
+                    df_valid['Address'] = df_valid['ACC'].map(dict_address)
+
+                    cocok = df_valid['Address'].notna().sum()
+                    if cocok == 0:
+                        st.error("FATAL: tidak satu pun akun cocok dengan List ACC. Cek kolom A (Login) dan kolom F (address) di List_ACC.")
                     else:
-                        st.success("✅ Semua data berhasil dipetakan ke dalam template baru secara otomatis!")
-                        with open(file_output, "rb") as f:
-                            st.download_button("📥 Unduh Hasil Excel", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        kond = df_valid['Address'] == ALAMAT_BANJARMASIN
+                        lot_bjm   = round(float(df_valid.loc[kond, 'Lot'].sum()), 4)
+                        lot_pusat = round(float(df_valid.loc[~kond, 'Lot'].sum()), 4)
+                        
+                        st.write(f"**Hasil Peta Akun:** PUSAT = {lot_pusat} | BANJARMASIN = {lot_bjm} | TOTAL = {round(lot_pusat + lot_bjm, 4)}")
+
+                        df_kom = df_valid.groupby('Commodity')['Lot'].sum().reset_index()
+                        df_kom['Lot'] = df_kom['Lot'].round(4)
+
+                        file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
+                        
+                        # -------------------------------------------------------------
+                        # MENGGUNAKAN TEMPLATE OTOMATIS (Tanpa File Eksternal)
+                        # -------------------------------------------------------------
+                        wb = buat_template_ldk()
+                        
+                        ws = wb['Vol']
+                        ws['C6'] = nama_bulan
+                        if tahun: ws['A4'] = tahun
+                        for row in ws.iter_rows():
+                            lok = str(row[1].value).upper().replace(" ", "")
+                            if 'PUSAT' in lok: row[4].value = lot_pusat
+                            elif 'BANJARMASIN' in lok: row[4].value = lot_bjm
+
+                        wk = wb['Kom']
+                        wk['D6'] = nama_bulan
+                        if tahun: wk['A4'] = tahun
+
+                        for _, d in df_kom.iterrows():
+                            kode = str(d['Commodity']).strip()
+                            if kode in ("nan", ""): continue
+                            lot = float(d['Lot'])
+
+                            peta = {}
+                            for r in range(2, wk.max_row + 1):
+                                k = str(wk.cell(r, 3).value).strip()
+                                if k and k.lower() != 'none': peta.setdefault(k.upper(), r)
+
+                            baris = peta.get(kode.upper())
+                            if baris is None:
+                                for k_ldk, r in peta.items():
+                                    if kode.upper() in k_ldk:
+                                        baris = r
+                                        break
+                            if baris is None:
+                                baris = sisipkan_komoditas(wk, kode, lot)
+                            else:
+                                wk.cell(baris, 4).value = lot
+
+                        wb.save(file_output)
+
+                        # VERIFIKASI (Mengecek file yang telah dibuat)
+                        cek = load_workbook(file_output, data_only=True)
+                        v, k = cek['Vol'], cek['Kom']
+                        
+                        r_pusat = next(r for r in range(1, v.max_row + 1) if 'PUSAT' in str(v.cell(r, 2).value).upper().replace(" ", ""))
+                        r_bjm   = next(r for r in range(1, v.max_row + 1) if 'BANJARMASIN' in str(v.cell(r, 2).value).upper().replace(" ", ""))
+                        
+                        masalah = []
+                        val_pusat = load_workbook(file_output)['Vol'].cell(r_pusat, 5).value
+                        val_bjm = load_workbook(file_output)['Vol'].cell(r_bjm, 5).value
+
+                        if val_pusat != lot_pusat: masalah.append(f"Vol PUSAT {val_pusat} != {lot_pusat}")
+                        if val_bjm != lot_bjm: masalah.append(f"Vol BJM {val_bjm} != {lot_bjm}")
+
+                        if masalah:
+                            st.error("GAGAL VERIFIKASI INPUT:\n - " + "\n - ".join(masalah))
+                        else:
+                            st.success("✅ Semua data berhasil diproses dan diinjeksi ke template dengan aman!")
+                            with open(file_output, "rb") as f:
+                                st.download_button("📥 Unduh Hasil Excel", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
             st.error(f"Terjadi kesalahan saat memproses Rekap LDK: {e}")
