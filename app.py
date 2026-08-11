@@ -372,6 +372,8 @@ if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
             if total_emails == 0:
                 st.error("Tidak ada satupun email yang ditemukan dari semua kriteria pencarian.")
             else:
+                # FIX SCOPE: Deklarasi global agar aman dipanggil dalam Streamlit
+                global download_count
                 download_count = 0
                 downloaded_dates = set()
                 
@@ -379,7 +381,7 @@ if st.button("Mulai Proses Unduh & Gabung (Program 1)", type="primary"):
                 status_text = st.empty()
 
                 def process_emails(email_ids, is_fallback=False):
-                    nonlocal download_count
+                    global download_count
                     for idx, eid in enumerate(list(email_ids)):
                         res, msg_data = mail.fetch(eid, "(RFC822)")
                         if res == "OK":
