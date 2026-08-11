@@ -249,7 +249,8 @@ def merge_downloaded_excel(download_dir):
 # ============================================================
 # PROGRAM GENERATOR TEMPLATE EXCEL OTOMATIS (BESERTA RUMUS)
 # ============================================================
-def buat_template_ldk():
+# DI SINI PENAMBAHAN PARAMETER BULAN DAN TAHUN
+def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side
     
@@ -276,10 +277,10 @@ def buat_template_ldk():
     ws['A1'] = "Form 7"
     ws['A2'] = "Rekapitulasi Volume Transaksi (Lot)"
     ws['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
-    ws['A4'] = 2026
+    ws['A4'] = tahun # Dinamis
     
     headers_vol = {
-        'A6': "No.", 'B6': "Lokasi", 'C6': "Bulan", 
+        'A6': "No.", 'B6': "Lokasi", 'C6': nama_bulan, # Dinamis
         'C7': "Kontrak Berjangka", 'E7': "Kontrak Derivatif Lainnya", 'G7': "Jumlah",
         'C8': "Pertambangan", 'D8': "Pertanian Perkebunan", 'E8': "SPA", 'F8': "PALN"
     }
@@ -325,10 +326,10 @@ def buat_template_ldk():
     wk['A1'] = "Form 8"
     wk['A2'] = "Rekapitulasi Komisi Transaksi"
     wk['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
-    wk['A4'] = 2026
+    wk['A4'] = tahun # Dinamis
     
     headers_kom = {
-        'A6': "No.", 'B6': "Jenis Kontrak", 'D6': "Bulan",
+        'A6': "No.", 'B6': "Jenis Kontrak", 'D6': nama_bulan, # Dinamis
         'D7': "Vol (Lot)", 'E7': "Komisi (per Lot)", 'F7': "Total Komisi"
     }
     for pos, val in headers_kom.items(): wk[pos] = val
@@ -701,7 +702,6 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
 
                 st.info(f"Memproses {len(file_rekaps)} file rekap | Periode: {nama_bulan} {tahun or ''}")
 
-                # ---- PEMBACAAN DINAMIS SHEET BURSA ----
                 data_dfs = []
                 for f in file_rekaps:
                     try:
@@ -715,7 +715,7 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                             df_temp = pd.read_excel(f, sheet_name=0, header=None)
                             data_dfs.append(df_temp)
                     except Exception as e:
-                        pass # Lewati jika file rusak / tidak bisa dibaca
+                        pass
                 
                 if not data_dfs:
                     st.error("Data tidak dapat dibaca dari file-file rekap.")
@@ -754,21 +754,19 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                         file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
                         
                         # -------------------------------------------------------------
-                        # MENGGUNAKAN TEMPLATE OTOMATIS (Tanpa File Eksternal)
+                        # TEMPLATE SEKARANG MENERIMA NAMA BULAN DAN TAHUN SECARA DINAMIS
                         # -------------------------------------------------------------
-                        wb = buat_template_ldk()
+                        # Jika tahun kosong (misalnya karena tidak terdeteksi di ZIP), default ke 2026 atau tahun lain
+                        tahun_template = tahun if tahun else 2026
+                        wb = buat_template_ldk(nama_bulan=nama_bulan, tahun=tahun_template)
                         
                         ws = wb['Vol']
-                        ws['C6'] = nama_bulan
-                        if tahun: ws['A4'] = tahun
                         for row in ws.iter_rows():
                             lok = str(row[1].value).upper().replace(" ", "")
                             if 'PUSAT' in lok: row[4].value = lot_pusat
                             elif 'BANJARMASIN' in lok: row[4].value = lot_bjm
 
                         wk = wb['Kom']
-                        wk['D6'] = nama_bulan
-                        if tahun: wk['A4'] = tahun
 
                         for _, d in df_kom.iterrows():
                             kode = str(d['Commodity']).strip()
