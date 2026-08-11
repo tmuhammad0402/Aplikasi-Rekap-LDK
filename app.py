@@ -17,6 +17,23 @@ from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Aplikasi Rekap LDK", layout="wide")
 
+# File untuk menyimpan memori cabang
+CONFIG_FILE = "config_cabang.json"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    # Konfigurasi Bawaan jika belum ada file
+    return [{"Nama Cabang": "BANJARMASIN", "Logika Address": "DED-STY-AYN-BJM-CCF"}]
+
+def save_config(data):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f)
+
 # ============================================================
 # PROGRAM 1: YAHOO IMAP ATTACHMENT DOWNLOADER
 # ============================================================
@@ -247,10 +264,9 @@ def merge_downloaded_excel(download_dir):
         return None
 
 # ============================================================
-# PROGRAM GENERATOR TEMPLATE EXCEL OTOMATIS (BESERTA RUMUS)
+# PROGRAM GENERATOR TEMPLATE EXCEL OTOMATIS (MENDUKUNG MULTI-CABANG)
 # ============================================================
-# DI SINI PENAMBAHAN PARAMETER BULAN DAN TAHUN
-def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
+def buat_template_ldk(nama_bulan="Bulan", tahun=2026, daftar_cabang=[]):
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side
     
@@ -277,10 +293,10 @@ def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
     ws['A1'] = "Form 7"
     ws['A2'] = "Rekapitulasi Volume Transaksi (Lot)"
     ws['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
-    ws['A4'] = tahun # Dinamis
+    ws['A4'] = tahun 
     
     headers_vol = {
-        'A6': "No.", 'B6': "Lokasi", 'C6': nama_bulan, # Dinamis
+        'A6': "No.", 'B6': "Lokasi", 'C6': nama_bulan, 
         'C7': "Kontrak Berjangka", 'E7': "Kontrak Derivatif Lainnya", 'G7': "Jumlah",
         'C8': "Pertambangan", 'D8': "Pertanian Perkebunan", 'E8': "SPA", 'F8': "PALN"
     }
@@ -292,27 +308,33 @@ def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
     for r in range(6, 9):
         for c in range(1, 8): apply_style(ws, r, c, bold=True)
         
-    data_vol = [
-        [1, "PUSAT", 0, 0, 0, 0, "=SUM(D9:F9)"],
-        [2, "BANJARMASIN", 0, 0, 0, 0, "=SUM(D10:F10)"]
-    ]
+    # Pembuatan Baris Cabang Dinamis
+    cabang_list = ["PUSAT"] + daftar_cabang
+    data_vol = []
+    for i, cab in enumerate(cabang_list, start=1):
+        r_idx = 8 + i
+        data_vol.append([i, cab, 0, 0, 0, 0, f"=SUM(D{r_idx}:F{r_idx})"])
+
     for r_idx, row_data in enumerate(data_vol, start=9):
         for c_idx, val in enumerate(row_data, start=1):
             cell = apply_style(ws, r_idx, c_idx, center=(c_idx == 1 or c_idx >= 3))
             cell.value = val
 
-    ws['A12'] = "TOTAL"
-    ws.merge_cells('A12:B12')
-    apply_style(ws, 12, 1, bold=True)
-    apply_style(ws, 12, 2, bold=True)
+    # Baris TOTAL yang fleksibel mengikuti jumlah cabang
+    total_row = 9 + len(data_vol) + 1
+    ws[f'A{total_row}'] = "TOTAL"
+    ws.merge_cells(f'A{total_row}:B{total_row}')
+    apply_style(ws, total_row, 1, bold=True)
+    apply_style(ws, total_row, 2, bold=True)
     
     for col, letter in enumerate(['C', 'D', 'E', 'F', 'G'], start=3):
-        c = apply_style(ws, 12, col, bold=True)
-        c.value = f"=SUM({letter}9:{letter}10)"
+        c = apply_style(ws, total_row, col, bold=True)
+        c.value = f"=SUM({letter}9:{letter}{total_row-2})"
         
-    ws['A14'] = "Catatan"
-    ws['A15'] = "*)Isi lokasi dengan nama kantor cabang, pastikan nama yang terdapat pula di tab domisili"
-    ws['A16'] = "*)pastikan dalam satu baris semua colom terisi"
+    r_cat = total_row + 2
+    ws[f'A{r_cat}'] = "Catatan"
+    ws[f'A{r_cat+1}'] = "*)Isi lokasi dengan nama kantor cabang, pastikan nama yang terdapat pula di tab domisili"
+    ws[f'A{r_cat+2}'] = "*)pastikan dalam satu baris semua colom terisi"
     
     ws.column_dimensions['B'].width = 20
     ws.column_dimensions['C'].width = 15
@@ -326,10 +348,10 @@ def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
     wk['A1'] = "Form 8"
     wk['A2'] = "Rekapitulasi Komisi Transaksi"
     wk['A3'] = "PT. CENTRAL CAPITAL  FUTURES"
-    wk['A4'] = tahun # Dinamis
+    wk['A4'] = tahun 
     
     headers_kom = {
-        'A6': "No.", 'B6': "Jenis Kontrak", 'D6': nama_bulan, # Dinamis
+        'A6': "No.", 'B6': "Jenis Kontrak", 'D6': nama_bulan, 
         'D7': "Vol (Lot)", 'E7': "Komisi (per Lot)", 'F7': "Total Komisi"
     }
     for pos, val in headers_kom.items(): wk[pos] = val
@@ -419,7 +441,6 @@ def buat_template_ldk(nama_bulan="Bulan", tahun=2026):
 # PROGRAM 2: REKAP LOT LDK
 # ============================================================
 
-ALAMAT_BANJARMASIN = "DED-STY-AYN-BJM-CCF"
 PREFIX_KLIEN       = "CC"
 KOMISI_DEFAULT     = 20
 UTAMAKAN_REVISI    = True
@@ -639,10 +660,29 @@ if st.button("Mulai Proses Unduh & Gabung", type="primary"):
 st.markdown("---")
 
 # ============================================================
-# BAGIAN BAWAH: EKSTRAK & REKAP (TANPA UPLOAD TEMPLATE & FIX BURSA)
+# BAGIAN BAWAH: EKSTRAK & REKAP (DINAMIS CABANG)
 # ============================================================
 st.header("Rekap Lot LDK")
-st.write("Fitur memproses file ZIP Rekap Transaksi, pemetaan List ACC, dan injeksi data otomatis (Rumus template dipertahankan).")
+
+# 1. UI PENGATURAN CABANG DINAMIS
+st.subheader("⚙️ Pengaturan Cabang & Logika Address")
+st.write("Tambahkan, edit, atau hapus daftar cabang beserta kode address-nya di tabel bawah ini. *Perubahan akan otomatis tersimpan*. Akun yang tidak cocok dengan logika di bawah akan otomatis dianggap sebagai **PUSAT**.")
+
+default_cabang = pd.DataFrame(load_config())
+df_cabang_edited = st.data_editor(default_cabang, num_rows="dynamic", use_container_width=True)
+
+# Membersihkan dan Menyimpan Konfigurasi secara permanen
+clean_data = []
+for _, row in df_cabang_edited.iterrows():
+    nama = str(row.get('Nama Cabang', '')).strip()
+    logika = str(row.get('Logika Address', '')).strip()
+    if nama and logika and nama.lower() != 'nan' and logika.lower() != 'nan':
+         clean_data.append({"Nama Cabang": nama, "Logika Address": logika})
+save_config(clean_data)
+
+
+st.markdown("---")
+st.write("Fitur memproses file ZIP Rekap Transaksi, pemetaan List ACC, dan injeksi data otomatis ke template.")
 
 col_a, col_b = st.columns(2)
 with col_a:
@@ -659,7 +699,6 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
             shutil.rmtree(EXTRACT_DIR)
         os.makedirs(EXTRACT_DIR, exist_ok=True)
         
-        # Simpan file upload ke server sementara
         with open("temp_rekap.zip", "wb") as f: f.write(zip_file_upload.getbuffer())
         with open("temp_acc.xlsx", "wb") as f: f.write(acc_file_upload.getbuffer())
 
@@ -702,6 +741,16 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
 
                 st.info(f"Memproses {len(file_rekaps)} file rekap | Periode: {nama_bulan} {tahun or ''}")
 
+                # Mengekstrak kamus (dictionary) dari konfigurasi cabang yang di UI
+                dict_cabang = {}
+                daftar_cabang_tambahan = []
+                for item in clean_data:
+                    nama_cabang = item['Nama Cabang'].upper()
+                    dict_cabang[item['Logika Address']] = nama_cabang
+                    if nama_cabang not in daftar_cabang_tambahan:
+                        daftar_cabang_tambahan.append(nama_cabang)
+
+                # Pemrosesan DataFrame Excel
                 data_dfs = []
                 for f in file_rekaps:
                     try:
@@ -727,8 +776,6 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                     df['Lot'] = pd.to_numeric(df[COL_LOT], errors='coerce').fillna(0)
                     df['ACC'] = df.apply(ekstrak_akun, axis=1)
                     
-                    total_mentah = round(float(df['Lot'].sum()), 4)
-
                     df_valid = df.dropna(subset=['ACC']).copy()
                     acc = pd.read_excel("temp_acc.xlsx", header=None)
                     acc['Login']   = acc[0].map(normalisasi_kode)
@@ -742,11 +789,15 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                     if cocok == 0:
                         st.error("FATAL: tidak satu pun akun cocok dengan List ACC. Cek kolom A (Login) dan kolom F (address) di List_ACC.")
                     else:
-                        kond = df_valid['Address'] == ALAMAT_BANJARMASIN
-                        lot_bjm   = round(float(df_valid.loc[kond, 'Lot'].sum()), 4)
-                        lot_pusat = round(float(df_valid.loc[~kond, 'Lot'].sum()), 4)
+                        # LOGIKA MAPPING DINAMIS
+                        df_valid['Cabang'] = df_valid['Address'].map(dict_cabang).fillna('PUSAT')
+                        lot_per_cabang = df_valid.groupby('Cabang')['Lot'].sum().to_dict()
                         
-                        st.write(f"**Hasil Peta Akun:** PUSAT = {lot_pusat} | BANJARMASIN = {lot_bjm} | TOTAL = {round(lot_pusat + lot_bjm, 4)}")
+                        # Tampilkan Log Hasil Peta
+                        st.write("**Hasil Peta Akun Berdasarkan Logika Anda:**")
+                        semua_cabang_urut = ['PUSAT'] + daftar_cabang_tambahan
+                        hasil_str = [f"**{cab}** = {round(lot_per_cabang.get(cab, 0.0), 4)}" for cab in semua_cabang_urut]
+                        st.write(" | ".join(hasil_str) + f" | ➡️ **TOTAL KESELURUHAN = {round(sum(lot_per_cabang.values()), 4)}**")
 
                         df_kom = df_valid.groupby('Commodity')['Lot'].sum().reset_index()
                         df_kom['Lot'] = df_kom['Lot'].round(4)
@@ -754,17 +805,19 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                         file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
                         
                         # -------------------------------------------------------------
-                        # TEMPLATE SEKARANG MENERIMA NAMA BULAN DAN TAHUN SECARA DINAMIS
+                        # BUILD TEMPLATE DENGAN CABANG & BULAN/TAHUN DINAMIS
                         # -------------------------------------------------------------
-                        # Jika tahun kosong (misalnya karena tidak terdeteksi di ZIP), default ke 2026 atau tahun lain
                         tahun_template = tahun if tahun else 2026
-                        wb = buat_template_ldk(nama_bulan=nama_bulan, tahun=tahun_template)
+                        wb = buat_template_ldk(nama_bulan=nama_bulan, tahun=tahun_template, daftar_cabang=daftar_cabang_tambahan)
                         
                         ws = wb['Vol']
-                        for row in ws.iter_rows():
-                            lok = str(row[1].value).upper().replace(" ", "")
-                            if 'PUSAT' in lok: row[4].value = lot_pusat
-                            elif 'BANJARMASIN' in lok: row[4].value = lot_bjm
+                        for row in ws.iter_rows(min_row=9, max_row=8 + len(semua_cabang_urut)):
+                            lok_cell = row[1].value
+                            if lok_cell:
+                                lok = str(lok_cell).upper().replace(" ", "")
+                                for cab in semua_cabang_urut:
+                                    if cab.replace(" ", "") == lok:
+                                        row[4].value = round(lot_per_cabang.get(cab, 0.0), 4)
 
                         wk = wb['Kom']
 
@@ -793,17 +846,18 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
 
                         # VERIFIKASI (Mengecek file yang telah dibuat)
                         cek = load_workbook(file_output, data_only=True)
-                        v, k = cek['Vol'], cek['Kom']
-                        
-                        r_pusat = next(r for r in range(1, v.max_row + 1) if 'PUSAT' in str(v.cell(r, 2).value).upper().replace(" ", ""))
-                        r_bjm   = next(r for r in range(1, v.max_row + 1) if 'BANJARMASIN' in str(v.cell(r, 2).value).upper().replace(" ", ""))
+                        v_cek = cek['Vol']
                         
                         masalah = []
-                        val_pusat = load_workbook(file_output)['Vol'].cell(r_pusat, 5).value
-                        val_bjm = load_workbook(file_output)['Vol'].cell(r_bjm, 5).value
-
-                        if val_pusat != lot_pusat: masalah.append(f"Vol PUSAT {val_pusat} != {lot_pusat}")
-                        if val_bjm != lot_bjm: masalah.append(f"Vol BJM {val_bjm} != {lot_bjm}")
+                        for cab in semua_cabang_urut:
+                            try:
+                                r_cab = next(r for r in range(1, v_cek.max_row + 1) if cab.replace(" ", "") in str(v_cek.cell(r, 2).value).upper().replace(" ", ""))
+                                val_cab = v_cek.cell(r_cab, 5).value or 0
+                                lot_expected = round(lot_per_cabang.get(cab, 0.0), 4)
+                                if round(val_cab, 4) != lot_expected:
+                                    masalah.append(f"Vol {cab} {val_cab} != {lot_expected}")
+                            except StopIteration:
+                                masalah.append(f"Baris untuk {cab} tidak ditemukan di sheet Vol.")
 
                         if masalah:
                             st.error("GAGAL VERIFIKASI INPUT:\n - " + "\n - ".join(masalah))
