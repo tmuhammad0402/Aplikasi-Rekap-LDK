@@ -41,7 +41,7 @@ def save_config(data):
         json.dump(data, f)
 
 # ============================================================
-# 2. LOGIKA BACKEND & FUNGSI PENDUKUNG (TETAP)
+# 2. LOGIKA BACKEND & FUNGSI PENDUKUNG
 # ============================================================
 
 def clean_filename(filename):
@@ -400,14 +400,20 @@ def sisipkan_komoditas(ws, kode, lot):
 # 3. GUI STREAMLIT MAIN
 # ============================================================
 
-# --- SIDEBAR: Pengaturan Global ---
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3039/3039401.png", width=60)
-    st.header("⚙️ Konfigurasi")
-    st.write("Atur logika pemetaan *address* cabang.")
+st.title("✨ Dashboard Automasi LDK")
+st.markdown("Pusat kendali untuk mengunduh rekap dari email dan membangun Form LDK secara otomatis.")
+
+# --- PENGATURAN GLOBAL (EXPANDER) ---
+with st.expander("⚙️ Konfigurasi Logika Address Cabang (Klik untuk membuka)", expanded=False):
+    st.write("Atur logika pemetaan *address* cabang di bawah ini. Pusat akan ditangkap otomatis dari sisa alamat yang tidak terdaftar.")
     
     default_cabang = pd.DataFrame(load_config())
-    df_cabang_edited = st.data_editor(default_cabang, num_rows="dynamic", use_container_width=True)
+    df_cabang_edited = st.data_editor(
+        default_cabang, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        hide_index=True 
+    )
 
     clean_data = []
     for _, row in df_cabang_edited.iterrows():
@@ -416,13 +422,8 @@ with st.sidebar:
         if nama and logika and nama.lower() != 'nan' and logika.lower() != 'nan':
             clean_data.append({"Nama Cabang": nama, "Logika Address": logika})
     save_config(clean_data)
-    
-    st.caption("Pusat akan ditangkap secara otomatis dari sisa alamat yang tidak terdaftar di sini.")
 
-# --- MAIN CONTENT ---
-st.title("✨ Dashboard Automasi LDK")
-st.markdown("Pusat kendali untuk mengunduh rekap dari email dan membangun Form LDK secara otomatis.")
-
+# --- TABS UTAMA ---
 tab1, tab2 = st.tabs(["📥 1. Downloader Lampiran Email", "📊 2. Ekstraksi & Builder LDK"])
 
 # ------------------------------------------------------------
@@ -670,6 +671,30 @@ with tab2:
                                     for i, cab in enumerate(semua_cabang_urut):
                                         metric_cols[i].metric(label=f"🏙️ {cab}", value=f"{round(lot_per_cabang.get(cab, 0.0), 4):,}")
                                     metric_cols[-1].metric(label="📊 TOTAL KESELURUHAN", value=f"{round(sum(lot_per_cabang.values()), 4):,}")
+
+                                    # -----------------------------------------------------------------
+                                    # BARU: FITUR PRATINJAU (PREVIEW) TABEL HASIL
+                                    # -----------------------------------------------------------------
+                                    with st.expander("👀 Klik di sini untuk Pratinjau Rincian Tabel LDK", expanded=True):
+                                        col_prev1, col_prev2 = st.columns(2)
+                                        
+                                        with col_prev1:
+                                            st.markdown("**1️⃣ Rekapitulasi Volume Transaksi per Lokasi**")
+                                            # Membangun dataframe rekap per cabang
+                                            df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
+                                            df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
+                                            st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
+                                            
+                                        with col_prev2:
+                                            st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
+                                            # Memfilter hanya komoditas yang nilai lot-nya > 0
+                                            df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
+                                            if df_prev_kom.empty:
+                                                st.info("Tidak ada transaksi / lot bernilai 0.")
+                                            else:
+                                                df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
+                                                df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
+                                                st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
                                     st.write("---")
 
                                     status.update(label="Selesai! LDK berhasil dibuat.", state="complete")
