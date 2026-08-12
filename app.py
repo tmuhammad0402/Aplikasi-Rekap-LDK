@@ -576,6 +576,7 @@ with tab1:
             imap_server = st.text_input("Server IMAP", value="imap.mail.yahoo.com")
             subject_input = st.text_input("Subjek Pencarian (pisahkan koma)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
 
+        download_tab1_success = False
         if st.button("🚀 Mulai Ekstraksi Email", type="primary", use_container_width=True):
             if not subject_input: st.warning("Pencarian dibatalkan karena subjek kosong.")
             else:
@@ -660,8 +661,7 @@ with tab1:
                                 merge_downloaded_excel(DOWNLOAD_DIR)
                                 shutil.make_archive(dynamic_zip_filename.replace('.zip', ''), 'zip', DOWNLOAD_DIR)
                                 status.update(label=f"Selesai! {download_count} file berhasil diunduh.", state="complete")
-                                with open(dynamic_zip_filename, "rb") as f:
-                                    st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary")
+                                download_tab1_success = True
                             else:
                                 status.update(label="Email ditemukan, namun tidak ada lampiran valid.", state="error")
                     except Exception as e:
@@ -669,6 +669,11 @@ with tab1:
                     finally:
                         try: mail.close(); mail.logout()
                         except: pass
+        
+        # Render tombol Download di luar st.status agar langsung terlihat
+        if download_tab1_success:
+            with open(dynamic_zip_filename, "rb") as f:
+                st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------
 # TAB 2: EKSTRAK & BUILDER LDK
@@ -680,6 +685,7 @@ with tab2:
         with col_a: zip_file_upload = st.file_uploader("📦 1. Upload ZIP Rekap Transaksi", type=["zip"])
         with col_b: acc_file_upload = st.file_uploader("📋 2. Upload File List ACC (.xlsx)", type=["xlsx"])
 
+        ldk_success = False
         if st.button("🔨 Proses & Buat File LDK", type="primary", use_container_width=True):
             if not (zip_file_upload and acc_file_upload): st.error("Mohon lengkapi unggahan file ZIP dan List ACC terlebih dahulu.")
             else:
@@ -776,36 +782,41 @@ with tab2:
                                                 for col in range(1, 7): wk.cell(row=baris, column=col).fill = yellow_fill
 
                                     wb.save(file_output)
-
-                                    st.write("---")
-                                    st.subheader("📈 Ringkasan Volume (Lot)")
-                                    metric_cols = st.columns(len(semua_cabang_urut) + 1)
-                                    for i, cab in enumerate(semua_cabang_urut):
-                                        metric_cols[i].metric(label=f"🏙️ {cab}", value=f"{round(lot_per_cabang.get(cab, 0.0), 4):,}")
-                                    metric_cols[-1].metric(label="📊 TOTAL KESELURUHAN", value=f"{round(sum(lot_per_cabang.values()), 4):,}")
-
-                                    with st.expander("👀 Klik di sini untuk Pratinjau Rincian Tabel LDK", expanded=True):
-                                        col_prev1, col_prev2 = st.columns(2)
-                                        with col_prev1:
-                                            st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
-                                            df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
-                                            df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
-                                            st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
-                                        with col_prev2:
-                                            st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
-                                            df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
-                                            if df_prev_kom.empty: st.info("Tidak ada transaksi.")
-                                            else:
-                                                df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
-                                                df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
-                                                st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
-                                                
                                     status.update(label="Selesai! LDK berhasil dibuat.", state="complete")
-                                    with open(file_output, "rb") as f:
-                                        st.download_button("🎉 Unduh Template LDK (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+                                    ldk_success = True
 
                     except Exception as e:
                         status.update(label=f"Terjadi kesalahan: {e}", state="error")
+
+        # Render UX & Preview di luar kotak st.status
+        if ldk_success:
+            st.write("---")
+            st.subheader("📈 Ringkasan Volume (Lot)")
+            metric_cols = st.columns(len(semua_cabang_urut) + 1)
+            for i, cab in enumerate(semua_cabang_urut):
+                metric_cols[i].metric(label=f"🏙️ {cab}", value=f"{round(lot_per_cabang.get(cab, 0.0), 4):,}")
+            metric_cols[-1].metric(label="📊 TOTAL KESELURUHAN", value=f"{round(sum(lot_per_cabang.values()), 4):,}")
+
+            st.write("---")
+            st.markdown("### 👀 Pratinjau Rincian Tabel LDK")
+            col_prev1, col_prev2 = st.columns(2)
+            with col_prev1:
+                st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
+                df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
+                df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
+                st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
+            with col_prev2:
+                st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
+                df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
+                if df_prev_kom.empty: st.info("Tidak ada transaksi.")
+                else:
+                    df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
+                    df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
+                    st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
+            
+            st.write("---")
+            with open(file_output, "rb") as f:
+                st.download_button("🎉 Unduh Template LDK (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------
 # TAB 3: BUILDER LAPORAN TRIWULAN
@@ -840,6 +851,7 @@ with tab3:
                 zip_buffers.append(zip_buf)
                 akun_baru_inputs.append(akun_baru)
 
+        tw_success = False
         if st.button("🔨 Proses & Buat Laporan Triwulan", type="primary", use_container_width=True):
             if not all(zip_buffers):
                 st.error("Harap unggah KETIGA file ZIP Rekap untuk masing-masing bulan.")
@@ -848,7 +860,6 @@ with tab3:
                     try:
                         data_triwulan = []
                         for i in range(3):
-                            # Normalisasi daftar nasabah baru
                             akun_list = []
                             for baris in re.split(r'[,\n]+', akun_baru_inputs[i]):
                                 baris = baris.strip().upper()
@@ -862,27 +873,30 @@ with tab3:
                                 'Lama': {'Jumlah': jml_l, 'Lot': lot_l}
                             })
                         
-                        # Buat template excel
                         wb_tw = buat_template_triwulan(data_triwulan, tahun_triwulan, triwulan_romawi, bulan_list)
                         file_output_tw = f"Laporan_Triwulan_{triwulan_romawi}_{tahun_triwulan}.xlsx"
                         wb_tw.save(file_output_tw)
                         
-                        st.write("---")
-                        st.subheader("📈 Pratinjau Hasil Laporan Triwulan")
-                        
-                        df_preview = pd.DataFrame({
-                            "Bulan": bulan_list,
-                            "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
-                            "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
-                            "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
-                            "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
-                        })
-                        st.dataframe(df_preview, hide_index=True, use_container_width=True)
-                        
                         status.update(label="Selesai! Laporan Triwulan berhasil dibuat.", state="complete")
-                        
-                        with open(file_output_tw, "rb") as f:
-                            st.download_button("🎉 Unduh Laporan Triwulan (Excel)", data=f, file_name=file_output_tw, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+                        tw_success = True
 
                     except Exception as e:
                         status.update(label=f"Terjadi kesalahan saat memproses: {e}", state="error")
+        
+        # Render UX & Preview di luar kotak st.status
+        if tw_success:
+            st.write("---")
+            st.subheader("📈 Pratinjau Hasil Laporan Triwulan")
+            
+            df_preview = pd.DataFrame({
+                "Bulan": bulan_list,
+                "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
+                "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
+                "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
+                "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
+            })
+            st.dataframe(df_preview, hide_index=True, use_container_width=True)
+            
+            st.write("---")
+            with open(file_output_tw, "rb") as f:
+                st.download_button("🎉 Unduh Laporan Triwulan (Excel)", data=f, file_name=file_output_tw, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
