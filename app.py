@@ -820,6 +820,9 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                                         row[4].value = round(lot_per_cabang.get(cab, 0.0), 4)
 
                         wk = wb['Kom']
+                        
+                        # Definisi warna kuning untuk menyorot baris yang aktif
+                        yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
                         for _, d in df_kom.iterrows():
                             kode = str(d['Commodity']).strip()
@@ -841,6 +844,11 @@ if st.button("Mulai Proses Ekstrak & Rekap", type="primary"):
                                 baris = sisipkan_komoditas(wk, kode, lot)
                             else:
                                 wk.cell(baris, 4).value = lot
+                            
+                            # HIGHLIGHT: Beri warna kuning pada baris yang lot-nya lebih dari 0
+                            if baris is not None and lot > 0:
+                                for col in range(1, 7): # Terapkan warna dari kolom A (No) sampai F (Total Komisi)
+                                    wk.cell(row=baris, column=col).fill = yellow_fill
 
                         wb.save(file_output)
 
