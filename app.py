@@ -799,20 +799,21 @@ with tab2:
 
             st.write("---")
             st.markdown("### 👀 Pratinjau Rincian Tabel LDK")
-            col_prev1, col_prev2 = st.columns(2)
-            with col_prev1:
-                st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
-                df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
-                df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
-                st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
-            with col_prev2:
-                st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
-                df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
-                if df_prev_kom.empty: st.info("Tidak ada transaksi.")
-                else:
-                    df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
-                    df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
-                    st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
+            with st.container():
+                col_prev1, col_prev2 = st.columns(2)
+                with col_prev1:
+                    st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
+                    df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
+                    df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
+                    st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
+                with col_prev2:
+                    st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
+                    df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
+                    if df_prev_kom.empty: st.info("Tidak ada transaksi.")
+                    else:
+                        df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
+                        df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
+                        st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
             
             st.write("---")
             with open(file_output, "rb") as f:
@@ -886,17 +887,22 @@ with tab3:
         # Render UX & Preview di luar kotak st.status
         if tw_success:
             st.write("---")
-            st.subheader("📈 Pratinjau Hasil Laporan Triwulan")
+            st.markdown("### 📈 Pratinjau Hasil Laporan Triwulan")
             
-            df_preview = pd.DataFrame({
-                "Bulan": bulan_list,
-                "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
-                "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
-                "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
-                "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
-            })
-            st.dataframe(df_preview, hide_index=True, use_container_width=True)
+            with st.container():
+                df_preview = pd.DataFrame({
+                    "Bulan": bulan_list,
+                    "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
+                    "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
+                    "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
+                    "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
+                })
+                st.dataframe(df_preview, hide_index=True, use_container_width=True)
             
             st.write("---")
             with open(file_output_tw, "rb") as f:
                 st.download_button("🎉 Unduh Laporan Triwulan (Excel)", data=f, file_name=file_output_tw, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+
+# Memastikan selalu ada ruang ekstra (padding) di paling bawah aplikasi 
+# agar layar browser selalu bisa di-scroll dengan mulus.
+st.markdown("<br><br><br><br>", unsafe_allow_html=True)
