@@ -396,35 +396,171 @@ def sisipkan_komoditas(ws, kode, lot):
         for c, h in ((4, 'D'), (5, 'E'), (6, 'F')): ws.cell(r_total, c).value = f'={h}8+{h}{r_lain}'
     return baru
 
+# --- FUNGSI TRIWULAN ---
+def proses_zip_triwulan(zip_buffer, akun_baru_list):
+    EXTRACT_DIR = "temp_triwulan_extract"
+    if os.path.exists(EXTRACT_DIR): shutil.rmtree(EXTRACT_DIR)
+    os.makedirs(EXTRACT_DIR, exist_ok=True)
+    
+    with open("temp_tw.zip", "wb") as f: f.write(zip_buffer.getbuffer())
+    with zipfile.ZipFile("temp_tw.zip", 'r') as z: z.extractall(EXTRACT_DIR)
+    
+    file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and 'GABUNGAN' not in f.upper()])
+
+    if UTAMAKAN_REVISI:
+        POLA_REVISI = r'\b(REV|REVISI|REVISED|PERBAIKAN|FIX|UPDATE)\b'
+        is_revisi = lambda p: re.search(POLA_REVISI, os.path.basename(p).upper()) is not None
+        kunci = lambda p: re.sub(r'\s+', ' ', re.sub(POLA_REVISI, ' ', re.sub(r'\.(XLSX|XLS)$', '', os.path.basename(p).upper()))).strip()
+        ada_revisi = {kunci(p) for p in file_rekaps if is_revisi(p)}
+        file_rekaps = [p for p in file_rekaps if not (not is_revisi(p) and kunci(p) in ada_revisi)]
+
+    data_dfs = []
+    for f in file_rekaps:
+        try:
+            xls = pd.ExcelFile(f)
+            bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
+            data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0] if bursa_sheet else 0, header=None))
+        except Exception: pass
+        
+    if not data_dfs: return 0, 0.0, 0, 0.0
+    
+    df = pd.concat(data_dfs, ignore_index=True)
+    df = df.sort_values(by=0, key=lambda x: x.astype(str)).reset_index(drop=True)
+    df['Lot'] = pd.to_numeric(df[COL_LOT], errors='coerce').fillna(0)
+    df['ACC'] = df.apply(ekstrak_akun, axis=1)
+    
+    df_valid = df.dropna(subset=['ACC']).copy()
+    lot_per_akun = df_valid.groupby('ACC')['Lot'].sum().reset_index()
+    
+    jml_baru, lot_baru = 0, 0.0
+    jml_lama, lot_lama = 0, 0.0
+    
+    for _, row in lot_per_akun.iterrows():
+        akun = str(row['ACC'])
+        lot = float(row['Lot'])
+        if akun in akun_baru_list:
+            jml_baru += 1
+            lot_baru += lot
+        else:
+            jml_lama += 1
+            lot_lama += lot
+            
+    return jml_baru, round(lot_baru, 4), jml_lama, round(lot_lama, 4)
+
+def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Laporan Triwulan"
+    
+    font_bold = Font(bold=True)
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(top=Side(style="thin"), left=Side(style="thin"), right=Side(style="thin"), bottom=Side(style="thin"))
+    
+    def apply_style(ws, row, col, bold=False, center=True, border=True, wrap=False):
+        cell = ws.cell(row=row, column=col)
+        if bold: cell.font = font_bold
+        if center and wrap: cell.alignment = align_wrap
+        elif center: cell.alignment = align_center
+        elif wrap: cell.alignment = Alignment(vertical="center", wrap_text=True)
+        if border: cell.border = thin_border
+        return cell
+
+    titles = [
+        "Laporan",
+        "Rekap Jumlah Nasabah dan Transaksinya",
+        "Dalam Rangka Penerimaan Nasabah Secara Elektronik Online",
+        f"Untuk Transaksi Triwulan {triwulan_str} Tahun {tahun}",
+        "PT Central Capital Futures"
+    ]
+    for idx, title in enumerate(titles, start=1):
+        ws.cell(row=idx, column=1, value=title).alignment = align_center
+        ws.merge_cells(start_row=idx, start_column=1, end_row=idx, end_column=10)
+        
+    headers_8 = [
+        (1, 1, 'No.'), (2, 2, 'Jenis Kontrak'), (3, 3, 'Jenis Nasabah'), 
+        (4, 5, f'Bulan: {nama_bulan_list[0]}'), (6, 7, f'Bulan: {nama_bulan_list[1]}'), 
+        (8, 9, f'Bulan: {nama_bulan_list[2]}')
+    ]
+    for start_c, end_c, val in headers_8:
+        if start_c != end_c: ws.merge_cells(start_row=8, start_column=start_c, end_row=8, end_column=end_c)
+        apply_style(ws, 8, start_c, bold=True, center=True, border=True).value = val
+        if start_c != end_c: apply_style(ws, 8, end_c, bold=True, center=True, border=True)
+        
+    ws.merge_cells('A8:A9'); ws.merge_cells('B8:B9'); ws.merge_cells('C8:C9')
+    apply_style(ws, 8, 10, bold=True, center=True, border=True).value = "Total Per-Triwulan"
+    
+    for c in [1, 2, 3, 10]: apply_style(ws, 9, c, bold=True, border=True)
+    
+    for i in range(3):
+        col_jml, col_vol = 4 + (i * 2), 5 + (i * 2)
+        apply_style(ws, 9, col_jml, bold=True, center=True, border=True, wrap=True).value = "Jumlah\nNasabah"
+        apply_style(ws, 9, col_vol, bold=True, center=True, border=True, wrap=True).value = "Volume\nTransaksi"
+    apply_style(ws, 9, 10, bold=True, center=True, border=True, wrap=True).value = "Volume\nTransaksi"
+        
+    rows_def = [
+        ("1", "Kontrak Berjangka"),
+        ("2", "Kontrak Derivatif\ndalam SPA"),
+        ("3", "Kontrak Derivatif\ndalam SPA dengan\nvolume minimum 0,1\n(nol koma satu) lot"),
+        ("4", "Kontrak Derivatif\ndalam SPA dengan\nvolume minimum 0,01\n(nol koma nol satu) lot")
+    ]
+    
+    r_idx = 10
+    for no, jenis in rows_def:
+        ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx+1, end_column=1)
+        ws.merge_cells(start_row=r_idx, start_column=2, end_row=r_idx+1, end_column=2)
+        
+        apply_style(ws, r_idx, 1, center=True, wrap=True).value = no
+        apply_style(ws, r_idx+1, 1, center=True, border=True) 
+        
+        apply_style(ws, r_idx, 2, center=False, wrap=True).value = jenis
+        apply_style(ws, r_idx+1, 2, center=False, border=True) 
+        
+        apply_style(ws, r_idx, 3, center=False, wrap=True).value = "Nasabah Baru di bulan\nbersangkutan"
+        apply_style(ws, r_idx+1, 3, center=False, wrap=True).value = "Nasabah Lama yang masih\nAktif"
+        
+        for r_offset in [0, 1]:
+            for col in range(4, 10):
+                apply_style(ws, r_idx + r_offset, col, center=True).value = ""
+            apply_style(ws, r_idx + r_offset, 10, center=True).value = f"=E{r_idx + r_offset}+G{r_idx + r_offset}+I{r_idx + r_offset}"
+            
+        r_idx += 2
+        
+    # Injeksi Data Triwulan spesifik pada Baris "Kontrak Derivatif SPA min 0,1 lot" (Row Excel 14 dan 15)
+    for i in range(3):
+        col_jml, col_vol = 4 + (i * 2), 5 + (i * 2)
+        ws.cell(row=14, column=col_jml).value = data_triwulan[i]['Baru']['Jumlah']
+        ws.cell(row=14, column=col_vol).value = data_triwulan[i]['Baru']['Lot']
+        ws.cell(row=15, column=col_jml).value = data_triwulan[i]['Lama']['Jumlah']
+        ws.cell(row=15, column=col_vol).value = data_triwulan[i]['Lama']['Lot']
+
+    ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 5, 30, 28
+    for c in ['D', 'E', 'F', 'G', 'H', 'I', 'J']: ws.column_dimensions[c].width = 15
+
+    return wb
+
 # ============================================================
 # 3. GUI STREAMLIT MAIN
 # ============================================================
 
-st.title("✨ Dashboard Automasi LDK")
-st.markdown("Pusat kendali untuk mengunduh rekap dari email dan membangun Form LDK secara otomatis.")
+st.title("✨ Dashboard Automasi LDK & Triwulan")
+st.markdown("Pusat kendali untuk mengunduh rekap dari email dan membangun Form Laporan secara otomatis.")
 
-# --- PENGATURAN GLOBAL (EXPANDER) ---
-with st.expander("⚙️ Konfigurasi Logika Address Cabang (Klik untuk membuka)", expanded=False):
+with st.expander("⚙️ Konfigurasi Logika Address Cabang LDK (Klik untuk membuka)", expanded=False):
     st.write("Atur logika pemetaan *address* cabang di bawah ini. Pusat akan ditangkap otomatis dari sisa alamat yang tidak terdaftar.")
     
     default_cabang = pd.DataFrame(load_config())
-    df_cabang_edited = st.data_editor(
-        default_cabang, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        hide_index=True 
-    )
+    df_cabang_edited = st.data_editor(default_cabang, num_rows="dynamic", use_container_width=True, hide_index=True)
 
     clean_data = []
     for _, row in df_cabang_edited.iterrows():
-        nama = str(row.get('Nama Cabang', '')).strip()
-        logika = str(row.get('Logika Address', '')).strip()
+        nama, logika = str(row.get('Nama Cabang', '')).strip(), str(row.get('Logika Address', '')).strip()
         if nama and logika and nama.lower() != 'nan' and logika.lower() != 'nan':
             clean_data.append({"Nama Cabang": nama, "Logika Address": logika})
     save_config(clean_data)
 
 # --- TABS UTAMA ---
-tab1, tab2 = st.tabs(["📥 1. Downloader Lampiran Email", "📊 2. Ekstraksi & Builder LDK"])
+tab1, tab2, tab3 = st.tabs(["📥 1. Downloader Email", "📊 2. Ekstraksi & LDK", "📈 3. Builder Triwulan"])
 
 # ------------------------------------------------------------
 # TAB 1: DOWNLOADER EMAIL
@@ -435,19 +571,17 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             email_acc = st.text_input("Akun Email Yahoo", value="dealingccf_bbj@yahoo.com")
-            app_pass = "krrrgdmbdoxorfbv" # Password aplikasi
+            app_pass = "krrrgdmbdoxorfbv"
         with col2:
             imap_server = st.text_input("Server IMAP", value="imap.mail.yahoo.com")
-            subject_input = st.text_input("Subjek Pencarian (pisahkan koma jika banyak)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
+            subject_input = st.text_input("Subjek Pencarian (pisahkan koma)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
 
         if st.button("🚀 Mulai Ekstraksi Email", type="primary", use_container_width=True):
-            if not subject_input:
-                st.warning("Pencarian dibatalkan karena subjek kosong.")
+            if not subject_input: st.warning("Pencarian dibatalkan karena subjek kosong.")
             else:
                 DOWNLOAD_DIR = "lampiran_email_temp"
                 if os.path.exists(DOWNLOAD_DIR): shutil.rmtree(DOWNLOAD_DIR)
                 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
                 queries = [q.strip() for q in subject_input.split(",") if q.strip()]
                 dynamic_zip_filename = f"{clean_filename(queries[0])[:50] or 'Hasil_Lampiran'}.zip"
 
@@ -459,11 +593,9 @@ with tab1:
                         mail.select('"INBOX"')
                         
                         shift3_ids, shift2_ids = set(), set()
-                        st.write("Mencari kecocokan subjek...")
                         for query in queries:
                             shift3_ids.update(do_imap_search(mail, query))
-                            if "Shift III" in query:
-                                shift2_ids.update(do_imap_search(mail, query.replace("Shift III", "Shift II")))
+                            if "Shift III" in query: shift2_ids.update(do_imap_search(mail, query.replace("Shift III", "Shift II")))
 
                         shift2_ids = shift2_ids - shift3_ids
                         total_emails = len(shift3_ids) + len(shift2_ids)
@@ -471,8 +603,7 @@ with tab1:
                         if total_emails == 0:
                             status.update(label="Tidak ada email ditemukan.", state="error")
                         else:
-                            download_count = 0
-                            downloaded_dates = set()
+                            download_count, downloaded_dates = 0, set()
                             progress_bar = st.progress(0)
 
                             def process_emails(email_ids, is_fallback=False):
@@ -484,7 +615,6 @@ with tab1:
                                             if isinstance(response_part, tuple):
                                                 msg = email.message_from_bytes(response_part[1])
                                                 safe_subject = clean_filename(decode_mime_header(msg.get("Subject", "Tanpa_Subjek")))
-
                                                 if msg.is_multipart():
                                                     for part in msg.walk():
                                                         if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None: continue
@@ -493,7 +623,6 @@ with tab1:
                                                             _, ext = os.path.splitext(decode_mime_header(original_filename))
                                                             filename = clean_filename(f"{safe_subject}{ext}")
                                                             date_key = extract_date_key(filename)
-                                                            
                                                             if date_key:
                                                                 if is_fallback and date_key in downloaded_dates: continue
                                                                 if not is_fallback: downloaded_dates.add(date_key)
@@ -503,7 +632,6 @@ with tab1:
                                                             while os.path.exists(filepath):
                                                                 filepath = os.path.join(DOWNLOAD_DIR, f"{base}_{counter}{ext}")
                                                                 counter += 1
-
                                                             with open(filepath, "wb") as f: f.write(part.get_payload(decode=True))
                                                             download_count += 1
                                     progress_bar.progress((idx + 1) / total_emails)
@@ -547,17 +675,13 @@ with tab1:
 # ------------------------------------------------------------
 with tab2:
     st.subheader("Otomatisasi Peta Akun & Format LDK")
-    
     with st.container(border=True):
         col_a, col_b = st.columns(2)
-        with col_a:
-            zip_file_upload = st.file_uploader("📦 1. Upload ZIP Rekap Transaksi", type=["zip"])
-        with col_b:
-            acc_file_upload = st.file_uploader("📋 2. Upload File List ACC (.xlsx)", type=["xlsx"])
+        with col_a: zip_file_upload = st.file_uploader("📦 1. Upload ZIP Rekap Transaksi", type=["zip"])
+        with col_b: acc_file_upload = st.file_uploader("📋 2. Upload File List ACC (.xlsx)", type=["xlsx"])
 
         if st.button("🔨 Proses & Buat File LDK", type="primary", use_container_width=True):
-            if not (zip_file_upload and acc_file_upload):
-                st.error("Mohon lengkapi unggahan file ZIP dan List ACC terlebih dahulu.")
+            if not (zip_file_upload and acc_file_upload): st.error("Mohon lengkapi unggahan file ZIP dan List ACC terlebih dahulu.")
             else:
                 EXTRACT_DIR = "rekap_extracted_temp"
                 if os.path.exists(EXTRACT_DIR): shutil.rmtree(EXTRACT_DIR)
@@ -566,10 +690,9 @@ with tab2:
                 with open("temp_rekap.zip", "wb") as f: f.write(zip_file_upload.getbuffer())
                 with open("temp_acc.xlsx", "wb") as f: f.write(acc_file_upload.getbuffer())
 
-                with st.status("Memproses injeksi data...", expanded=True) as status:
+                with st.status("Memproses injeksi data LDK...", expanded=True) as status:
                     try:
                         with zipfile.ZipFile("temp_rekap.zip", 'r') as z: z.extractall(EXTRACT_DIR)
-
                         file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and 'GABUNGAN' not in f.upper()])
 
                         if UTAMAKAN_REVISI:
@@ -579,8 +702,7 @@ with tab2:
                             ada_revisi = {kunci(p) for p in file_rekaps if is_revisi(p)}
                             file_rekaps = [p for p in file_rekaps if not (not is_revisi(p) and kunci(p) in ada_revisi)]
 
-                        if not file_rekaps:
-                            status.update(label="Data rekap kosong / tidak valid.", state="error")
+                        if not file_rekaps: status.update(label="Data rekap kosong / tidak valid.", state="error")
                         else:
                             nama_bulan, tahun = "Bulan", None
                             for bln in ['JANUARI', 'FEBRUARI', 'MARET', 'APRIL', 'MEI', 'JUNI', 'JULI', 'AGUSTUS', 'SEPTEMBER', 'OKTOBER', 'NOVEMBER', 'DESEMBER']:
@@ -590,8 +712,7 @@ with tab2:
                             m = re.search(r'(20\d{2})', os.path.basename(file_rekaps[0]))
                             if m: tahun = int(m.group(1))
 
-                            st.write(f"📁 Membaca {len(file_rekaps)} file untuk periode **{nama_bulan} {tahun or ''}**...")
-
+                            st.write(f"📁 Membaca {len(file_rekaps)} file LDK...")
                             dict_cabang, daftar_cabang_tambahan = {}, []
                             for item in clean_data:
                                 nama_cabang = item['Nama Cabang'].upper()
@@ -606,8 +727,7 @@ with tab2:
                                     data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0] if bursa_sheet else 0, header=None))
                                 except Exception: pass
                             
-                            if not data_dfs:
-                                status.update(label="Gagal mengekstrak isi Excel.", state="error")
+                            if not data_dfs: status.update(label="Gagal mengekstrak isi Excel.", state="error")
                             else:
                                 df = pd.concat(data_dfs, ignore_index=True)
                                 df = df.sort_values(by=0, key=lambda x: x.astype(str)).reset_index(drop=True)
@@ -621,7 +741,6 @@ with tab2:
                                 acc['Login']   = acc[0].map(normalisasi_kode)
                                 acc['Address'] = acc[5].map(lambda v: str(v).replace('\u00a0', ' ').strip())
                                 dict_address = dict(zip(acc['Login'], acc['Address']))
-
                                 df_valid['ACC'] = df_valid['ACC'].map(normalisasi_kode)
                                 df_valid['Address'] = df_valid['ACC'].map(dict_address)
 
@@ -630,10 +749,8 @@ with tab2:
                                 else:
                                     df_valid['Cabang'] = df_valid['Address'].map(dict_cabang).fillna('PUSAT')
                                     lot_per_cabang = df_valid.groupby('Cabang')['Lot'].sum().to_dict()
-                                    
                                     df_kom = df_valid.groupby('Commodity')['Lot'].sum().reset_index()
                                     df_kom['Lot'] = df_kom['Lot'].round(4)
-
                                     file_output = f"Output_LDK_{nama_bulan}{tahun or ''}.xlsx"
                                     
                                     wb = buat_template_ldk(nama_bulan=nama_bulan, tahun=(tahun if tahun else 2026), daftar_cabang=daftar_cabang_tambahan)
@@ -647,15 +764,12 @@ with tab2:
                                                 if cab.replace(" ", "") == lok: row[4].value = round(lot_per_cabang.get(cab, 0.0), 4)
 
                                     wk = wb['Kom']
-                                    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid") # Kuning pastel yang nyaman di mata
-
+                                    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                                     for _, d in df_kom.iterrows():
                                         kode, lot = str(d['Commodity']).strip(), float(d['Lot'])
                                         if kode in ("nan", ""): continue
-                                        
                                         peta = {str(wk.cell(r, 3).value).strip().upper(): r for r in range(2, wk.max_row + 1) if str(wk.cell(r, 3).value).strip() and str(wk.cell(r, 3).value).strip().lower() != 'none'}
                                         baris = peta.get(kode.upper()) or next((r for k_ldk, r in peta.items() if kode.upper() in k_ldk), None) or sisipkan_komoditas(wk, kode, lot)
-                                        
                                         if baris:
                                             wk.cell(baris, 4).value = lot
                                             if lot > 0:
@@ -663,44 +777,112 @@ with tab2:
 
                                     wb.save(file_output)
 
-                                    # UX: Tampilkan hasil metrik di atas tombol Download
                                     st.write("---")
                                     st.subheader("📈 Ringkasan Volume (Lot)")
-                                    
                                     metric_cols = st.columns(len(semua_cabang_urut) + 1)
                                     for i, cab in enumerate(semua_cabang_urut):
                                         metric_cols[i].metric(label=f"🏙️ {cab}", value=f"{round(lot_per_cabang.get(cab, 0.0), 4):,}")
                                     metric_cols[-1].metric(label="📊 TOTAL KESELURUHAN", value=f"{round(sum(lot_per_cabang.values()), 4):,}")
 
-                                    # -----------------------------------------------------------------
-                                    # BARU: FITUR PRATINJAU (PREVIEW) TABEL HASIL
-                                    # -----------------------------------------------------------------
                                     with st.expander("👀 Klik di sini untuk Pratinjau Rincian Tabel LDK", expanded=True):
                                         col_prev1, col_prev2 = st.columns(2)
-                                        
                                         with col_prev1:
-                                            st.markdown("**1️⃣ Rekapitulasi Volume Transaksi per Lokasi**")
-                                            # Membangun dataframe rekap per cabang
+                                            st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
                                             df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
                                             df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
                                             st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
-                                            
                                         with col_prev2:
                                             st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
-                                            # Memfilter hanya komoditas yang nilai lot-nya > 0
                                             df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
-                                            if df_prev_kom.empty:
-                                                st.info("Tidak ada transaksi / lot bernilai 0.")
+                                            if df_prev_kom.empty: st.info("Tidak ada transaksi.")
                                             else:
                                                 df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
                                                 df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
                                                 st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
-                                    st.write("---")
-
+                                                
                                     status.update(label="Selesai! LDK berhasil dibuat.", state="complete")
-                                    
                                     with open(file_output, "rb") as f:
-                                        st.download_button("🎉 Unduh Template LDK Final (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+                                        st.download_button("🎉 Unduh Template LDK (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
+
+                    except Exception as e:
+                        status.update(label=f"Terjadi kesalahan: {e}", state="error")
+
+# ------------------------------------------------------------
+# TAB 3: BUILDER LAPORAN TRIWULAN
+# ------------------------------------------------------------
+with tab3:
+    st.subheader("Otomatisasi Peta Akun & Format Triwulan")
+    
+    triwulan_options = {
+        "I (Januari - Maret)": ("I", ["Januari", "Februari", "Maret"]),
+        "II (April - Juni)": ("II", ["April", "Mei", "Juni"]),
+        "III (Juli - September)": ("III", ["Juli", "Agustus", "September"]),
+        "IV (Oktober - Desember)": ("IV", ["Oktober", "November", "Desember"])
+    }
+    
+    with st.container(border=True):
+        col_t1, col_t2 = st.columns(2)
+        with col_t1: pilihan_triwulan = st.selectbox("Pilih Triwulan", list(triwulan_options.keys()))
+        with col_t2: tahun_triwulan = st.number_input("Pilih Tahun", min_value=2020, max_value=2050, value=2026)
+        
+        triwulan_romawi, bulan_list = triwulan_options[pilihan_triwulan]
+        st.write("---")
+        
+        cols_bulan = st.columns(3)
+        zip_buffers = []
+        akun_baru_inputs = []
+        
+        for i in range(3):
+            with cols_bulan[i]:
+                st.markdown(f"**Bulan {i+1}: {bulan_list[i]}**")
+                zip_buf = st.file_uploader(f"Upload ZIP {bulan_list[i]}", type=["zip"], key=f"zip_tw_{i}")
+                akun_baru = st.text_area(f"Daftar Akun Baru ({bulan_list[i]})", help="Pisahkan menggunakan koma atau ENTER. Contoh: CC12345, CC67890", key=f"akun_tw_{i}", height=120)
+                zip_buffers.append(zip_buf)
+                akun_baru_inputs.append(akun_baru)
+
+        if st.button("🔨 Proses & Buat Laporan Triwulan", type="primary", use_container_width=True):
+            if not all(zip_buffers):
+                st.error("Harap unggah KETIGA file ZIP Rekap untuk masing-masing bulan.")
+            else:
+                with st.status("Memproses data Triwulan...", expanded=True) as status:
+                    try:
+                        data_triwulan = []
+                        for i in range(3):
+                            # Normalisasi daftar nasabah baru
+                            akun_list = []
+                            for baris in re.split(r'[,\n]+', akun_baru_inputs[i]):
+                                baris = baris.strip().upper()
+                                if not baris: continue
+                                mm = re.search(r'(\d{5,})', baris)
+                                if mm: akun_list.append(mm.group(1))
+                            
+                            jml_b, lot_b, jml_l, lot_l = proses_zip_triwulan(zip_buffers[i], akun_list)
+                            data_triwulan.append({
+                                'Baru': {'Jumlah': jml_b, 'Lot': lot_b},
+                                'Lama': {'Jumlah': jml_l, 'Lot': lot_l}
+                            })
+                        
+                        # Buat template excel
+                        wb_tw = buat_template_triwulan(data_triwulan, tahun_triwulan, triwulan_romawi, bulan_list)
+                        file_output_tw = f"Laporan_Triwulan_{triwulan_romawi}_{tahun_triwulan}.xlsx"
+                        wb_tw.save(file_output_tw)
+                        
+                        st.write("---")
+                        st.subheader("📈 Pratinjau Hasil Laporan Triwulan")
+                        
+                        df_preview = pd.DataFrame({
+                            "Bulan": bulan_list,
+                            "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
+                            "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
+                            "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
+                            "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
+                        })
+                        st.dataframe(df_preview, hide_index=True, use_container_width=True)
+                        
+                        status.update(label="Selesai! Laporan Triwulan berhasil dibuat.", state="complete")
+                        
+                        with open(file_output_tw, "rb") as f:
+                            st.download_button("🎉 Unduh Laporan Triwulan (Excel)", data=f, file_name=file_output_tw, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
                     except Exception as e:
                         status.update(label=f"Terjadi kesalahan saat memproses: {e}", state="error")
