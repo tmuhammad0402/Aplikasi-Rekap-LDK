@@ -15,6 +15,58 @@ from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 
 # ============================================================
+# INTEGRASI GITHUB API (Untuk Penyimpanan Permanen)
+# ============================================================
+try:
+    from github import Github
+except ImportError:
+    Github = None
+
+CONFIG_FILE = "config_cabang.json"
+
+def load_config():
+    # 1. Coba baca dari GitHub langsung jika sudah dikonfigurasi
+    if Github is not None and "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        try:
+            g = Github(st.secrets["GITHUB_TOKEN"])
+            repo = g.get_repo(st.secrets["GITHUB_REPO"])
+            contents = repo.get_contents(CONFIG_FILE)
+            return json.loads(contents.decoded_content.decode('utf-8'))
+        except Exception:
+            pass # Lanjut ke metode lokal jika gagal/file belum ada di Github
+
+    # 2. Fallback: Baca dari file lokal
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f: return json.load(f)
+        except: pass
+        
+    return [{"Nama Cabang": "BANJARMASIN", "Logika Address": "DED-STY-AYN-BJM-CCF"}]
+
+def save_config(data):
+    # Simpan di lokal untuk kecepatan
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+        
+    # Sinkronisasi ke GitHub agar Permanen di Cloud
+    if Github is not None and "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
+        try:
+            g = Github(st.secrets["GITHUB_TOKEN"])
+            repo = g.get_repo(st.secrets["GITHUB_REPO"])
+            json_data = json.dumps(data, indent=4)
+            
+            try:
+                # Jika file ada, Update
+                contents = repo.get_contents(CONFIG_FILE)
+                if contents.decoded_content.decode('utf-8') != json_data:
+                    repo.update_file(contents.path, "Update cabang dari Streamlit UI", json_data, contents.sha)
+            except:
+                # Jika file belum ada, Create
+                repo.create_file(CONFIG_FILE, "Create config cabang awal", json_data)
+        except Exception as e:
+            st.error(f"Gagal push ke GitHub: {e}")
+
+# ============================================================
 # 1. KONFIGURASI HALAMAN (UI/UX)
 # ============================================================
 st.set_page_config(
@@ -23,22 +75,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# File untuk menyimpan memori cabang
-CONFIG_FILE = "config_cabang.json"
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return [{"Nama Cabang": "BANJARMASIN", "Logika Address": "DED-STY-AYN-BJM-CCF"}]
-
-def save_config(data):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(data, f)
 
 # ============================================================
 # 2. LOGIKA BACKEND & FUNGSI PENDUKUNG
@@ -396,7 +432,6 @@ def sisipkan_komoditas(ws, kode, lot):
         for c, h in ((4, 'D'), (5, 'E'), (6, 'F')): ws.cell(r_total, c).value = f'={h}8+{h}{r_lain}'
     return baru
 
-# --- FUNGSI TRIWULAN ---
 def proses_zip_triwulan(zip_buffer, akun_baru_list):
     EXTRACT_DIR = "temp_triwulan_extract"
     if os.path.exists(EXTRACT_DIR): shutil.rmtree(EXTRACT_DIR)
@@ -432,18 +467,14 @@ def proses_zip_triwulan(zip_buffer, akun_baru_list):
     df_valid = df.dropna(subset=['ACC']).copy()
     lot_per_akun = df_valid.groupby('ACC')['Lot'].sum().reset_index()
     
-    jml_baru, lot_baru = 0, 0.0
-    jml_lama, lot_lama = 0, 0.0
+    jml_baru, lot_baru, jml_lama, lot_lama = 0, 0.0, 0, 0.0
     
     for _, row in lot_per_akun.iterrows():
-        akun = str(row['ACC'])
-        lot = float(row['Lot'])
+        akun, lot = str(row['ACC']), float(row['Lot'])
         if akun in akun_baru_list:
-            jml_baru += 1
-            lot_baru += lot
+            jml_baru += 1; lot_baru += lot
         else:
-            jml_lama += 1
-            lot_lama += lot
+            jml_lama += 1; lot_lama += lot
             
     return jml_baru, round(lot_baru, 4), jml_lama, round(lot_lama, 4)
 
@@ -467,11 +498,9 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
         return cell
 
     titles = [
-        "Laporan",
-        "Rekap Jumlah Nasabah dan Transaksinya",
+        "Laporan", "Rekap Jumlah Nasabah dan Transaksinya",
         "Dalam Rangka Penerimaan Nasabah Secara Elektronik Online",
-        f"Untuk Transaksi Triwulan {triwulan_str} Tahun {tahun}",
-        "PT Central Capital Futures"
+        f"Untuk Transaksi Triwulan {triwulan_str} Tahun {tahun}", "PT Central Capital Futures"
     ]
     for idx, title in enumerate(titles, start=1):
         ws.cell(row=idx, column=1, value=title).alignment = align_center
@@ -520,13 +549,11 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
         apply_style(ws, r_idx+1, 3, center=False, wrap=True).value = "Nasabah Lama yang masih\nAktif"
         
         for r_offset in [0, 1]:
-            for col in range(4, 10):
-                apply_style(ws, r_idx + r_offset, col, center=True).value = ""
+            for col in range(4, 10): apply_style(ws, r_idx + r_offset, col, center=True).value = ""
             apply_style(ws, r_idx + r_offset, 10, center=True).value = f"=E{r_idx + r_offset}+G{r_idx + r_offset}+I{r_idx + r_offset}"
-            
         r_idx += 2
         
-    # Injeksi Data Triwulan spesifik pada Baris "Kontrak Derivatif SPA min 0,1 lot" (Row Excel 14 dan 15)
+    # Injeksi Data Triwulan pada Baris "Kontrak Derivatif SPA min 0,1 lot"
     for i in range(3):
         col_jml, col_vol = 4 + (i * 2), 5 + (i * 2)
         ws.cell(row=14, column=col_jml).value = data_triwulan[i]['Baru']['Jumlah']
@@ -546,18 +573,29 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
 st.title("✨ Dashboard Automasi LDK & Triwulan")
 st.markdown("Pusat kendali untuk mengunduh rekap dari email dan membangun Form Laporan secara otomatis.")
 
+# --- PENGATURAN GLOBAL (EXPANDER) ---
 with st.expander("⚙️ Konfigurasi Logika Address Cabang LDK (Klik untuk membuka)", expanded=False):
     st.write("Atur logika pemetaan *address* cabang di bawah ini. Pusat akan ditangkap otomatis dari sisa alamat yang tidak terdaftar.")
     
-    default_cabang = pd.DataFrame(load_config())
-    df_cabang_edited = st.data_editor(default_cabang, num_rows="dynamic", use_container_width=True, hide_index=True)
+    if Github is None:
+        st.warning("⚠️ Library 'PyGithub' belum terinstal. Perubahan ini hanya akan tersimpan sementara di memori server awan. Tambahkan `PyGithub` di `requirements.txt` Anda untuk fitur sinkronisasi permanen ke GitHub.")
 
-    clean_data = []
-    for _, row in df_cabang_edited.iterrows():
-        nama, logika = str(row.get('Nama Cabang', '')).strip(), str(row.get('Logika Address', '')).strip()
-        if nama and logika and nama.lower() != 'nan' and logika.lower() != 'nan':
-            clean_data.append({"Nama Cabang": nama, "Logika Address": logika})
-    save_config(clean_data)
+    saved_config = load_config()
+    df_cabang_edited = st.data_editor(pd.DataFrame(saved_config), num_rows="dynamic", use_container_width=True, hide_index=True)
+
+    if st.button("💾 Simpan Perubahan ke Database/GitHub", type="primary"):
+        new_data = []
+        for _, row in df_cabang_edited.iterrows():
+            nama, logika = str(row.get('Nama Cabang', '')).strip(), str(row.get('Logika Address', '')).strip()
+            if nama and logika and nama.lower() != 'nan' and logika.lower() != 'nan':
+                new_data.append({"Nama Cabang": nama, "Logika Address": logika})
+        
+        save_config(new_data)
+        st.success("✅ Pengaturan cabang berhasil diperbarui!")
+        st.rerun()
+
+# Selalu gunakan data terbaru yang sudah di-load untuk tab pemrosesan
+config_data = load_config()
 
 # --- TABS UTAMA ---
 tab1, tab2, tab3 = st.tabs(["📥 1. Downloader Email", "📊 2. Ekstraksi & LDK", "📈 3. Builder Triwulan"])
@@ -670,7 +708,6 @@ with tab1:
                         try: mail.close(); mail.logout()
                         except: pass
         
-        # Render tombol Download di luar st.status agar langsung terlihat
         if download_tab1_success:
             with open(dynamic_zip_filename, "rb") as f:
                 st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
@@ -720,7 +757,7 @@ with tab2:
 
                             st.write(f"📁 Membaca {len(file_rekaps)} file LDK...")
                             dict_cabang, daftar_cabang_tambahan = {}, []
-                            for item in clean_data:
+                            for item in config_data:
                                 nama_cabang = item['Nama Cabang'].upper()
                                 dict_cabang[item['Logika Address']] = nama_cabang
                                 if nama_cabang not in daftar_cabang_tambahan: daftar_cabang_tambahan.append(nama_cabang)
@@ -788,7 +825,6 @@ with tab2:
                     except Exception as e:
                         status.update(label=f"Terjadi kesalahan: {e}", state="error")
 
-        # Render UX & Preview di luar kotak st.status
         if ldk_success:
             st.write("---")
             st.subheader("📈 Ringkasan Volume (Lot)")
@@ -799,21 +835,20 @@ with tab2:
 
             st.write("---")
             st.markdown("### 👀 Pratinjau Rincian Tabel LDK")
-            with st.container():
-                col_prev1, col_prev2 = st.columns(2)
-                with col_prev1:
-                    st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
-                    df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
-                    df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
-                    st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
-                with col_prev2:
-                    st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
-                    df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
-                    if df_prev_kom.empty: st.info("Tidak ada transaksi.")
-                    else:
-                        df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
-                        df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
-                        st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
+            col_prev1, col_prev2 = st.columns(2)
+            with col_prev1:
+                st.markdown("**1️⃣ Rekapitulasi Volume Transaksi**")
+                df_prev_vol = pd.DataFrame(list(lot_per_cabang.items()), columns=["Lokasi Cabang", "Total Lot"])
+                df_prev_vol.loc[len(df_prev_vol)] = ["TOTAL KESELURUHAN", sum(lot_per_cabang.values())]
+                st.dataframe(df_prev_vol, hide_index=True, use_container_width=True)
+            with col_prev2:
+                st.markdown("**2️⃣ Rincian Lot per Komoditas Aktif**")
+                df_prev_kom = df_kom[df_kom['Lot'] > 0].copy()
+                if df_prev_kom.empty: st.info("Tidak ada transaksi.")
+                else:
+                    df_prev_kom.columns = ["Jenis Komoditas", "Total Lot"]
+                    df_prev_kom.loc[len(df_prev_kom)] = ["TOTAL", df_prev_kom['Total Lot'].sum()]
+                    st.dataframe(df_prev_kom, hide_index=True, use_container_width=True)
             
             st.write("---")
             with open(file_output, "rb") as f:
@@ -884,20 +919,18 @@ with tab3:
                     except Exception as e:
                         status.update(label=f"Terjadi kesalahan saat memproses: {e}", state="error")
         
-        # Render UX & Preview di luar kotak st.status
         if tw_success:
             st.write("---")
             st.markdown("### 📈 Pratinjau Hasil Laporan Triwulan")
             
-            with st.container():
-                df_preview = pd.DataFrame({
-                    "Bulan": bulan_list,
-                    "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
-                    "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
-                    "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
-                    "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
-                })
-                st.dataframe(df_preview, hide_index=True, use_container_width=True)
+            df_preview = pd.DataFrame({
+                "Bulan": bulan_list,
+                "Jml Nasabah Baru": [d['Baru']['Jumlah'] for d in data_triwulan],
+                "Lot Nasabah Baru": [d['Baru']['Lot'] for d in data_triwulan],
+                "Jml Nasabah Lama": [d['Lama']['Jumlah'] for d in data_triwulan],
+                "Lot Nasabah Lama": [d['Lama']['Lot'] for d in data_triwulan]
+            })
+            st.dataframe(df_preview, hide_index=True, use_container_width=True)
             
             st.write("---")
             with open(file_output_tw, "rb") as f:
@@ -905,4 +938,4 @@ with tab3:
 
 # Memastikan selalu ada ruang ekstra (padding) di paling bawah aplikasi 
 # agar layar browser selalu bisa di-scroll dengan mulus.
-st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
