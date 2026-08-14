@@ -1022,9 +1022,9 @@ with tab1:
                             excel_summary = df_excel.groupby(['Customer', 'Action'])['Qty'].sum().reset_index()
                             
                             comp = pd.merge(excel_summary, pdf_summary, on=['Customer', 'Action'], how='outer', suffixes=('_Excel', '_PDF'))
-                            comp['Qty_Excel'] = comp['Qty_Excel'].fillna(0)
-                            comp['Qty_PDF'] = comp['Qty_PDF'].fillna(0)
-                            comp['Selisih'] = comp['Qty_Excel'] - comp['Qty_PDF']
+                            comp['Total_Pedagang'] = comp['Total_Pedagang'].fillna(0)
+                            comp['Total_KBI'] = comp['Total_KBI'].fillna(0)
+                            comp['Selisih'] = comp['Total_Pedagang'] - comp['Total_KBI']
                             comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
                             comp.insert(1, 'Sumber Excel', used_excel_file)
                             
