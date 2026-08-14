@@ -809,7 +809,7 @@ with tab1:
                 os.makedirs(DIR_KBI, exist_ok=True)
                 
                 queries_kbi = [q.strip() for q in subject_kbi.split(",") if q.strip()]
-                # Setup nama default ZIP, sedangkan nama Excel/PDF tetap bawaan aslinya[cite: 1]
+                # Setup nama default ZIP, sedangkan nama Excel/PDF tetap bawaan aslinya
                 zip_kbi_name = "Rekap KBI Clearing House Report.zip"
                 excel_kbi_name = f"Rekap_Gabungan_KBI_{clean_filename(queries_kbi[0])[:30]}.xlsx"
 
@@ -880,7 +880,7 @@ with tab1:
                                     except: pass
 
                             if final_kbi_pdfs:
-                                # --- Logika Penamaan File Output Dinamis (HANYA ZIP) ---[cite: 1]
+                                # --- Logika Penamaan File Output Dinamis (HANYA ZIP) ---
                                 sample_date = get_date_from_pdf(os.path.basename(final_kbi_pdfs[0]))
                                 if sample_date:
                                     thn_kbi = sample_date[:4] # Ambil 4 digit tahun
@@ -1037,19 +1037,24 @@ with tab1:
                             excel_summary = df_excel.groupby(['Customer', 'Action'])['Qty'].sum().reset_index()
                             
                             comp = pd.merge(excel_summary, pdf_summary, on=['Customer', 'Action'], how='outer', suffixes=('_Excel', '_PDF'))
-                            # Merubah nama kolom sesuai permintaan[cite: 1]
+                            
+                            # --- PERBAIKAN: Pembulatan & Presisi ---
                             comp.rename(columns={'Qty_Excel': 'Pedagang', 'Qty_PDF': 'KBI'}, inplace=True)
-                            comp['Pedagang'] = comp['Pedagang'].fillna(0)
-                            comp['KBI'] = comp['KBI'].fillna(0)
-                            comp['Selisih'] = comp['Pedagang'] - comp['KBI']
+                            comp['Pedagang'] = comp['Pedagang'].fillna(0).round(4)
+                            comp['KBI'] = comp['KBI'].fillna(0).round(4)
+                            comp['Selisih'] = (comp['Pedagang'] - comp['KBI']).round(4)
+                            
                             comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
                             comp.insert(1, 'Sumber Excel', used_excel_file)
                             
-                            mismatches = comp[comp['Selisih'] != 0]
+                            # Filter ketidaksesuaian menggunakan toleransi presisi desimal
+                            mismatches = comp[comp['Selisih'].abs() > 0.0001]
+                            
                             if not mismatches.empty:
                                 st.write(f"❌ Ditemukan {len(mismatches)} baris ketidaksesuaian di {date_key}!")
                             else:
                                 st.write(f"✅ Seluruh transaksi identik di tanggal {date_key}.")
+                            # ----------------------------------------
                                 
                             all_results.append(comp)
                         
