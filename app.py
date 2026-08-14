@@ -721,8 +721,9 @@ with tab1:
 
                             def process_emails(email_ids, is_fallback=False):
                                 global download_count
-                                # Iterasi dibalik (reversed) agar memproses email TERBARU lebih dulu
-                                for idx, eid in enumerate(reversed(list(email_ids))):
+                                # PERBAIKAN: Urutkan ID secara menurun (Descending) agar email dengan ID terbesar (terbaru) diproses lebih dulu
+                                sorted_eids = sorted(list(email_ids), key=lambda x: int(x), reverse=True)
+                                for idx, eid in enumerate(sorted_eids):
                                     res, msg_data = mail.fetch(eid, "(RFC822)")
                                     if res == "OK":
                                         for response_part in msg_data:
