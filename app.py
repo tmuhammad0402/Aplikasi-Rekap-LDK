@@ -677,14 +677,18 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             email_acc = st.text_input("Akun Email Yahoo", value="dealingccf_bbj@yahoo.com")
-            app_pass = "krrrgdmbdoxorfbv"
+            # Mengambil password dari st.secrets, kosongkan fallback demi keamanan
+            app_pass = st.secrets.get("YAHOO_PASSWORD", "")
         with col2:
             imap_server = st.text_input("Server IMAP", value="imap.mail.yahoo.com")
             subject_input = st.text_input("Subjek Pencarian (pisahkan koma)", value="REKAP TRANSAKSI Shift III JANUARI 2026")
 
         download_tab1_success = False
         if st.button("🚀 Mulai Ekstraksi Email", type="primary", use_container_width=True):
-            if not subject_input: st.warning("Pencarian dibatalkan karena subjek kosong.")
+            if not app_pass:
+                st.error("⚠️ Password Yahoo belum dikonfigurasi di Streamlit Secrets! Silakan atur terlebih dahulu.")
+            elif not subject_input:
+                st.warning("Pencarian dibatalkan karena subjek kosong.")
             else:
                 DOWNLOAD_DIR = "lampiran_email_temp"
                 if os.path.exists(DOWNLOAD_DIR): shutil.rmtree(DOWNLOAD_DIR)
@@ -787,14 +791,17 @@ with tab1:
         col3, col4 = st.columns(2)
         with col3:
             email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
-            pass_kbi = "bbua ayry pcaf njhz"
+            # Mengambil password dari st.secrets, kosongkan fallback demi keamanan
+            pass_kbi = st.secrets.get("GMAIL_PASSWORD", "")
         with col4:
             server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
             subject_kbi = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8")
 
         download_kbi_success = False
         if st.button("🚀 Mulai Ekstraksi KBI", type="primary", use_container_width=True, key="btn_kbi"):
-            if not subject_kbi:
+            if not pass_kbi:
+                st.error("⚠️ Password Gmail belum dikonfigurasi di Streamlit Secrets! Silakan atur terlebih dahulu.")
+            elif not subject_kbi:
                 st.warning("Pencarian dibatalkan karena subjek kosong.")
             else:
                 DIR_KBI = "lampiran_kbi_temp"
