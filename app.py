@@ -912,6 +912,9 @@ with tab1:
                                     df_kbi_gabung = pd.DataFrame(kbi_transactions)
                                     total_qty = df_kbi_gabung['Qty (Lot)'].sum()
                                     df_kbi_gabung.loc[len(df_kbi_gabung)] = ["TOTAL KESELURUHAN", "", "", "", "", total_qty, ""]
+                                    
+                                    excel_path_inside = os.path.join(DIR_KBI, excel_kbi_name)
+                                    df_kbi_gabung.to_excel(excel_path_inside, index=False)
                                     df_kbi_gabung.to_excel(excel_kbi_name, index=False)
                                 
                                 shutil.make_archive(zip_kbi_name.replace('.zip', ''), 'zip', DIR_KBI)
