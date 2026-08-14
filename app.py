@@ -13,7 +13,7 @@ import zipfile
 import copy
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
-import pypdf  # PASTIKAN ANDA SUDAH MENGINSTALL pypdf: pip install pypdf
+import pypdf
 
 # ============================================================
 # INTEGRASI GITHUB API (Untuk Penyimpanan Permanen)
@@ -26,7 +26,6 @@ except ImportError:
 CONFIG_FILE = "config_cabang.json"
 
 def load_config():
-    # 1. Coba baca dari GitHub langsung jika sudah dikonfigurasi
     if Github is not None and "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
         try:
             g = Github(st.secrets["GITHUB_TOKEN"])
@@ -34,9 +33,8 @@ def load_config():
             contents = repo.get_contents(CONFIG_FILE)
             return json.loads(contents.decoded_content.decode('utf-8'))
         except Exception:
-            pass # Lanjut ke metode lokal jika gagal/file belum ada di Github
+            pass 
 
-    # 2. Fallback: Baca dari file lokal
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f: return json.load(f)
@@ -45,11 +43,9 @@ def load_config():
     return [{"Nama Cabang": "BANJARMASIN", "Logika Address": "DED-STY-AYN-BJM-CCF"}]
 
 def save_config(data):
-    # Simpan di lokal untuk kecepatan
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=4)
         
-    # Sinkronisasi ke GitHub agar Permanen di Cloud
     if Github is not None and "GITHUB_TOKEN" in st.secrets and "GITHUB_REPO" in st.secrets:
         try:
             g = Github(st.secrets["GITHUB_TOKEN"])
@@ -57,12 +53,10 @@ def save_config(data):
             json_data = json.dumps(data, indent=4)
             
             try:
-                # Jika file ada, Update
                 contents = repo.get_contents(CONFIG_FILE)
                 if contents.decoded_content.decode('utf-8') != json_data:
                     repo.update_file(contents.path, "Update cabang dari Streamlit UI", json_data, contents.sha)
             except:
-                # Jika file belum ada, Create
                 repo.create_file(CONFIG_FILE, "Create config cabang awal", json_data)
         except Exception as e:
             st.error(f"Gagal push ke GitHub: {e}")
@@ -554,7 +548,6 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
             apply_style(ws, r_idx + r_offset, 10, center=True).value = f"=E{r_idx + r_offset}+G{r_idx + r_offset}+I{r_idx + r_offset}"
         r_idx += 2
         
-    # Injeksi Data Triwulan pada Baris "Kontrak Derivatif SPA min 0,1 lot"
     for i in range(3):
         col_jml, col_vol = 4 + (i * 2), 5 + (i * 2)
         ws.cell(row=14, column=col_jml).value = data_triwulan[i]['Baru']['Jumlah']
@@ -567,7 +560,7 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
 
     return wb
 
-# --- TAMBAHAN: FUNGSI KOMPARASI PDF KBI VS EXCEL SHIFT ---
+# --- FUNGSI KOMPARASI PDF KBI VS EXCEL SHIFT ---
 MONTH_MAP = {
     'januari': '01', 'january': '01', 'jan': '01',
     'februari': '02', 'february': '02', 'feb': '02',
@@ -670,7 +663,6 @@ with st.expander("⚙️ Konfigurasi Logika Address Cabang LDK (Klik untuk membu
         st.success("✅ Pengaturan cabang berhasil diperbarui!")
         st.rerun()
 
-# Selalu gunakan data terbaru yang sudah di-load untuk tab pemrosesan
 config_data = load_config()
 
 # --- TABS UTAMA ---
@@ -788,7 +780,7 @@ with tab1:
             with open(dynamic_zip_filename, "rb") as f:
                 st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
 
-    # ------------------- FITUR BARU: KOMPARASI BATCH -------------------
+    # ------------------- FITUR BARU: KOMPARASI BATCH (DENGAN SCORING FILE) -------------------
     st.markdown("---")
     st.subheader("🔍 Komparasi Otomatis (Excel Laporan vs PDF KBI)")
     with st.container(border=True):
@@ -815,17 +807,45 @@ with tab1:
                             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                                 zip_ref.extractall(WORK_DIR_COMPARE)
                     
-                    pdf_dict, excel_dict = {}, {}
+                    pdf_dict = {}
+                    excel_dict_temp = {}
+                    
                     for root, dirs, files_in_dir in os.walk(WORK_DIR_COMPARE):
                         for f_name in files_in_dir:
                             if f_name.startswith('~') or f_name.startswith('.'): continue
                             f_path = os.path.join(root, f_name)
+                            
+                            # Jika PDF, simpan berdasarkan tanggal
                             if f_name.lower().endswith('.pdf'):
                                 d_key = get_date_from_pdf(f_name)
                                 if d_key: pdf_dict[d_key] = f_path
+                                
+                            # Jika Excel, simpan menggunakan SCORING (Prioritas File)
                             elif f_name.lower().endswith(('.xlsx', '.xls')):
                                 d_key = get_date_from_excel(f_name)
-                                if d_key: excel_dict[d_key] = f_path
+                                if d_key:
+                                    score = 0
+                                    fname_up = f_name.upper()
+                                    
+                                    # Aturan 1: Prioritas kata "Revisi/Rev/Update"
+                                    if re.search(r'\b(REV|REVISI|REVISED|PERBAIKAN|FIX|UPDATE)\b', fname_up):
+                                        score += 100
+                                        
+                                    # Aturan 2: Shift III lebih tinggi poinnya dari Shift II
+                                    if "SHIFT III" in fname_up or "SHIFT 3" in fname_up:
+                                        score += 10
+                                    elif "SHIFT II" in fname_up or "SHIFT 2" in fname_up:
+                                        score += 5
+                                        
+                                    if d_key not in excel_dict_temp:
+                                        excel_dict_temp[d_key] = (f_path, score)
+                                    else:
+                                        # Ganti file jika score file baru lebih tinggi (lebih prioritas)
+                                        if score > excel_dict_temp[d_key][1]:
+                                            excel_dict_temp[d_key] = (f_path, score)
+                                            
+                    # Buang nilai poin (score) karena sudah tidak diperlukan lagi, sisakan lokasi path-nya saja
+                    excel_dict = {k: v[0] for k, v in excel_dict_temp.items()}
                                 
                     matched_dates = set(pdf_dict.keys()).intersection(set(excel_dict.keys()))
                     
@@ -836,7 +856,9 @@ with tab1:
                     else:
                         all_results = []
                         for date_key in sorted(matched_dates):
-                            st.write(f"Memproses tanggal: {date_key}")
+                            used_excel_file = os.path.basename(excel_dict[date_key])
+                            st.write(f"📅 Memproses tanggal: {date_key} (Menggunakan file: `{used_excel_file}`)")
+                            
                             df_pdf = extract_pdf_data_komparasi(pdf_dict[date_key])
                             df_excel = extract_excel_data_komparasi(excel_dict[date_key])
                             
@@ -852,6 +874,7 @@ with tab1:
                             comp['Qty_PDF'] = comp['Qty_PDF'].fillna(0)
                             comp['Selisih'] = comp['Qty_Excel'] - comp['Qty_PDF']
                             comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
+                            comp.insert(1, 'Sumber Excel', used_excel_file)
                             
                             mismatches = comp[comp['Selisih'] != 0]
                             if not mismatches.empty:
@@ -1110,6 +1133,4 @@ with tab3:
             with open(file_output_tw, "rb") as f:
                 st.download_button("🎉 Unduh Laporan Triwulan (Excel)", data=f, file_name=file_output_tw, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
-# Memastikan selalu ada ruang ekstra (padding) di paling bawah aplikasi 
-# agar layar browser selalu bisa di-scroll dengan mulus.
 st.markdown("<br><br><br><br><br><br>", unsafe_allow_html=True)
