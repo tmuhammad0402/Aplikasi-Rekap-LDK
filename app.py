@@ -787,7 +787,7 @@ with tab1:
         col3, col4 = st.columns(2)
         with col3:
             email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
-            pass_kbi = st.text_input("Password Aplikasi", value="bbua ayry pcaf njhz", type="password")
+            pass_kbi = "bbua ayry pcaf njhz"
         with col4:
             server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
             subject_kbi = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8")
@@ -838,7 +838,6 @@ with tab1:
                                                         fname = decode_mime_header(fname_raw)
                                                         if 'TradeRegistrySummary' in fname and fname.lower().endswith('.pdf'):
                                                             safe_fname = clean_filename(fname)
-                                                            # Tambahkan label jika dari subjeknya itu revisi
                                                             if is_revisi_subj and 'REVISI' not in safe_fname.upper():
                                                                 name, ext = os.path.splitext(safe_fname)
                                                                 safe_fname = f"{name}_REVISI{ext}"
@@ -948,7 +947,6 @@ with tab1:
                 os.makedirs(WORK_DIR_COMPARE, exist_ok=True)
                 
                 with st.status("Sedang memproses dan mencocokkan file...", expanded=True) as status:
-                    # Save and extract files
                     for uploaded_file in uploaded_compare:
                         file_path = os.path.join(WORK_DIR_COMPARE, uploaded_file.name)
                         with open(file_path, "wb") as f:
@@ -966,23 +964,19 @@ with tab1:
                             if f_name.startswith('~') or f_name.startswith('.'): continue
                             f_path = os.path.join(root, f_name)
                             
-                            # Jika PDF, simpan berdasarkan tanggal
                             if f_name.lower().endswith('.pdf'):
                                 d_key = get_date_from_pdf(f_name)
                                 if d_key: pdf_dict[d_key] = f_path
                                 
-                            # Jika Excel, simpan menggunakan SCORING (Prioritas File)
                             elif f_name.lower().endswith(('.xlsx', '.xls')):
                                 d_key = get_date_from_excel(f_name)
                                 if d_key:
                                     score = 0
                                     fname_up = f_name.upper()
                                     
-                                    # Aturan 1: Prioritas kata "Revisi/Rev/Update"
                                     if re.search(r'\b(REV|REVISI|REVISED|PERBAIKAN|FIX|UPDATE)\b', fname_up):
                                         score += 100
                                         
-                                    # Aturan 2: Shift III lebih tinggi poinnya dari Shift II
                                     if "SHIFT III" in fname_up or "SHIFT 3" in fname_up:
                                         score += 10
                                     elif "SHIFT II" in fname_up or "SHIFT 2" in fname_up:
@@ -991,11 +985,9 @@ with tab1:
                                     if d_key not in excel_dict_temp:
                                         excel_dict_temp[d_key] = (f_path, score)
                                     else:
-                                        # Ganti file jika score file baru lebih tinggi (lebih prioritas)
                                         if score > excel_dict_temp[d_key][1]:
                                             excel_dict_temp[d_key] = (f_path, score)
                                             
-                    # Buang nilai poin (score) karena sudah tidak diperlukan lagi, sisakan lokasi path-nya saja
                     excel_dict = {k: v[0] for k, v in excel_dict_temp.items()}
                                 
                     matched_dates = set(pdf_dict.keys()).intersection(set(excel_dict.keys()))
