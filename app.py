@@ -677,7 +677,6 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             email_acc = st.text_input("Akun Email Yahoo", value="dealingccf_bbj@yahoo.com")
-            # Mengambil password dari st.secrets, kosongkan fallback demi keamanan
             app_pass = st.secrets.get("YAHOO_PASSWORD", "")
         with col2:
             imap_server = st.text_input("Server IMAP", value="imap.mail.yahoo.com")
@@ -728,10 +727,11 @@ with tab1:
                                                 safe_subject = clean_filename(decode_mime_header(msg.get("Subject", "Tanpa_Subjek")))
                                                 if msg.is_multipart():
                                                     for part in msg.walk():
-                                                        if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None: continue
-                                                        original_filename = part.get_filename()
-                                                        if original_filename:
-                                                            _, ext = os.path.splitext(decode_mime_header(original_filename))
+                                                        if part.get_content_maintype() == 'multipart': continue
+                                                        fname_raw = part.get_filename()
+                                                        if fname_raw:
+                                                            fname = decode_mime_header(fname_raw)
+                                                            _, ext = os.path.splitext(fname)
                                                             filename = clean_filename(f"{safe_subject}{ext}")
                                                             date_key = extract_date_key(filename)
                                                             if date_key:
@@ -791,7 +791,6 @@ with tab1:
         col3, col4 = st.columns(2)
         with col3:
             email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
-            # Mengambil password dari st.secrets, kosongkan fallback demi keamanan
             pass_kbi = st.secrets.get("GMAIL_PASSWORD", "")
         with col4:
             server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
@@ -839,11 +838,11 @@ with tab1:
                                             
                                             if msg.is_multipart():
                                                 for part in msg.walk():
-                                                    if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None: continue
+                                                    if part.get_content_maintype() == 'multipart': continue
                                                     fname_raw = part.get_filename()
                                                     if fname_raw:
                                                         fname = decode_mime_header(fname_raw)
-                                                        if 'TradeRegistrySummary' in fname and fname.lower().endswith('.pdf'):
+                                                        if 'traderegistrysummary' in fname.lower() and fname.lower().endswith('.pdf'):
                                                             safe_fname = clean_filename(fname)
                                                             if is_revisi_subj and 'REVISI' not in safe_fname.upper():
                                                                 name, ext = os.path.splitext(safe_fname)
