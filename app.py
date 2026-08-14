@@ -780,6 +780,157 @@ with tab1:
             with open(dynamic_zip_filename, "rb") as f:
                 st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
 
+    # ------------------- FITUR BARU: DOWNLOADER GMAIL KBI -------------------
+    st.markdown("---")
+    st.subheader("Unduh File Gabungan KBI dari Google")
+    with st.container(border=True):
+        col3, col4 = st.columns(2)
+        with col3:
+            email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
+            pass_kbi = st.text_input("Password Aplikasi", value="bbua ayry pcaf njhz", type="password")
+        with col4:
+            server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
+            subject_kbi = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8")
+
+        download_kbi_success = False
+        if st.button("🚀 Mulai Ekstraksi KBI", type="primary", use_container_width=True, key="btn_kbi"):
+            if not subject_kbi:
+                st.warning("Pencarian dibatalkan karena subjek kosong.")
+            else:
+                DIR_KBI = "lampiran_kbi_temp"
+                if os.path.exists(DIR_KBI): shutil.rmtree(DIR_KBI)
+                os.makedirs(DIR_KBI, exist_ok=True)
+                queries_kbi = [q.strip() for q in subject_kbi.split(",") if q.strip()]
+                zip_kbi_name = f"Hasil_KBI_{clean_filename(queries_kbi[0])[:30]}.zip"
+                excel_kbi_name = f"Rekap_Gabungan_KBI_{clean_filename(queries_kbi[0])[:30]}.xlsx"
+
+                with st.status("Sedang memproses email KBI...", expanded=True) as status:
+                    try:
+                        st.write("Menghubungkan ke server Gmail IMAP...")
+                        mail_kbi = imaplib.IMAP4_SSL(server_kbi)
+                        mail_kbi.login(email_kbi, pass_kbi)
+                        mail_kbi.select('"INBOX"')
+                        
+                        email_ids = set()
+                        for q in queries_kbi:
+                            email_ids.update(do_imap_search(mail_kbi, q))
+                        
+                        if not email_ids:
+                            status.update(label="Tidak ada email KBI ditemukan.", state="error")
+                        else:
+                            downloaded_kbi = []
+                            progress_bar = st.progress(0)
+                            
+                            for idx, eid in enumerate(list(email_ids)):
+                                res, msg_data = mail_kbi.fetch(eid, "(RFC822)")
+                                if res == "OK":
+                                    for response_part in msg_data:
+                                        if isinstance(response_part, tuple):
+                                            msg = email.message_from_bytes(response_part[1])
+                                            subj_raw = decode_mime_header(msg.get("Subject", ""))
+                                            is_revisi_subj = 'REVISI' in subj_raw.upper()
+                                            
+                                            if msg.is_multipart():
+                                                for part in msg.walk():
+                                                    if part.get_content_maintype() == 'multipart' or part.get('Content-Disposition') is None: continue
+                                                    fname_raw = part.get_filename()
+                                                    if fname_raw:
+                                                        fname = decode_mime_header(fname_raw)
+                                                        if 'TradeRegistrySummary' in fname and fname.lower().endswith('.pdf'):
+                                                            safe_fname = clean_filename(fname)
+                                                            # Tambahkan label jika dari subjeknya itu revisi
+                                                            if is_revisi_subj and 'REVISI' not in safe_fname.upper():
+                                                                name, ext = os.path.splitext(safe_fname)
+                                                                safe_fname = f"{name}_REVISI{ext}"
+                                                            
+                                                            filepath = os.path.join(DIR_KBI, safe_fname)
+                                                            with open(filepath, "wb") as f:
+                                                                f.write(part.get_payload(decode=True))
+                                                            downloaded_kbi.append(filepath)
+                                progress_bar.progress((idx + 1) / len(email_ids))
+                            
+                            st.write("Menyortir & menyeleksi file revisi KBI...")
+                            kbi_by_date = {}
+                            for fpath in downloaded_kbi:
+                                fname = os.path.basename(fpath)
+                                d_key = get_date_from_pdf(fname)
+                                if d_key:
+                                    is_rev = 'REVISI' in fname.upper()
+                                    kbi_by_date.setdefault(d_key, []).append((fpath, is_rev))
+                                    
+                            final_kbi_pdfs = []
+                            for d_key, flist in kbi_by_date.items():
+                                revs = [x[0] for x in flist if x[1]]
+                                if revs:
+                                    final_kbi_pdfs.append(revs[-1]) 
+                                else:
+                                    final_kbi_pdfs.append(flist[-1][0])
+                                    
+                            for fpath in downloaded_kbi:
+                                if fpath not in final_kbi_pdfs:
+                                    try: os.remove(fpath)
+                                    except: pass
+
+                            if final_kbi_pdfs:
+                                st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
+                                kbi_transactions = []
+                                for pdf_path in final_kbi_pdfs:
+                                    d_key = get_date_from_pdf(os.path.basename(pdf_path))
+                                    reader = pypdf.PdfReader(pdf_path)
+                                    text = "".join(page.extract_text() + "\n" for page in reader.pages)
+                                    lines = [L.strip() for L in text.split('\n')]
+                                    
+                                    i, c_act = 0, None
+                                    while i < len(lines):
+                                        L = lines[i]
+                                        if L == 'Buy': c_act = 'BUY'; i += 1; continue
+                                        elif L == 'Sell': c_act = 'SELL'; i += 1; continue
+                                        
+                                        if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
+                                            account = lines[i+2]
+                                            if 'CCFM' not in account:
+                                                qty = float(lines[i+4].replace(',', ''))
+                                                kbi_transactions.append({
+                                                    'Tanggal (YYYYMMDD)': d_key,
+                                                    'Waktu Transaksi': L,
+                                                    'Account': account,
+                                                    'Commodity Code': lines[i+3],
+                                                    'Action': c_act,
+                                                    'Qty (Lot)': qty,
+                                                    'Price': float(lines[i+6].replace(',', ''))
+                                                })
+                                            i += 8
+                                        else:
+                                            i += 1
+                                
+                                if kbi_transactions:
+                                    df_kbi_gabung = pd.DataFrame(kbi_transactions)
+                                    total_qty = df_kbi_gabung['Qty (Lot)'].sum()
+                                    df_kbi_gabung.loc[len(df_kbi_gabung)] = ["TOTAL KESELURUHAN", "", "", "", "", total_qty, ""]
+                                    df_kbi_gabung.to_excel(excel_kbi_name, index=False)
+                                
+                                shutil.make_archive(zip_kbi_name.replace('.zip', ''), 'zip', DIR_KBI)
+                                status.update(label=f"Selesai! {len(final_kbi_pdfs)} file KBI ditarik dan digabung.", state="complete")
+                                download_kbi_success = True
+                            else:
+                                status.update(label="Tidak ada file PDF TradeRegistrySummary yang valid.", state="error")
+                                
+                    except Exception as e:
+                        status.update(label=f"Error KBI: {e}", state="error")
+                    finally:
+                        try: mail_kbi.close(); mail_kbi.logout()
+                        except: pass
+        
+        if download_kbi_success:
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                with open(zip_kbi_name, "rb") as f:
+                    st.download_button("📥 Unduh Kumpulan PDF KBI (ZIP)", data=f, file_name=zip_kbi_name, mime="application/zip", type="primary", use_container_width=True)
+            with col_d2:
+                if os.path.exists(excel_kbi_name):
+                    with open(excel_kbi_name, "rb") as f:
+                        st.download_button("📊 Unduh Rekap Gabungan KBI (Excel)", data=f, file_name=excel_kbi_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+
     # ------------------- FITUR BARU: KOMPARASI BATCH (DENGAN SCORING FILE) -------------------
     st.markdown("---")
     st.subheader("🔍 Komparasi Otomatis (Excel Laporan vs PDF KBI)")
