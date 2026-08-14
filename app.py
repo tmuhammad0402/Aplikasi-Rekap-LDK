@@ -829,7 +829,6 @@ with tab1:
                 os.makedirs(DIR_KBI, exist_ok=True)
                 
                 queries_kbi = [q.strip() for q in subject_kbi.split(",") if q.strip()]
-                # Setup nama default ZIP, sedangkan nama Excel/PDF tetap bawaan aslinya
                 zip_kbi_name = "Rekap KBI Clearing House Report.zip"
                 excel_kbi_name = f"Rekap_Gabungan_KBI_{clean_filename(queries_kbi[0])[:30]}.xlsx"
 
@@ -850,7 +849,10 @@ with tab1:
                             downloaded_kbi = []
                             progress_bar = st.progress(0)
                             
-                            for idx, eid in enumerate(list(email_ids)):
+                            # PERBAIKAN: Urutkan ID Email agar dibaca secara kronologis (dari lama ke baru)
+                            sorted_eids = sorted(list(email_ids), key=lambda x: int(x))
+                            
+                            for idx, eid in enumerate(sorted_eids):
                                 res, msg_data = mail_kbi.fetch(eid, "(RFC822)")
                                 if res == "OK":
                                     for response_part in msg_data:
@@ -871,11 +873,18 @@ with tab1:
                                                                 name, ext = os.path.splitext(safe_fname)
                                                                 safe_fname = f"{name}_REVISI{ext}"
                                                             
+                                                            # PERBAIKAN: Sistem anti-timpa (Collision Prevention)
+                                                            base, counter = os.path.splitext(safe_fname)[0], 1
                                                             filepath = os.path.join(DIR_KBI, safe_fname)
+                                                            while os.path.exists(filepath):
+                                                                filepath = os.path.join(DIR_KBI, f"{base}_{counter}{ext}")
+                                                                counter += 1
+                                                            
                                                             with open(filepath, "wb") as f:
-                                                                f.write(part.get_payload(decode=True))
+                                                                payload = part.get_payload(decode=True)
+                                                                f.write(payload if payload else b"")
                                                             downloaded_kbi.append(filepath)
-                                progress_bar.progress((idx + 1) / len(email_ids))
+                                progress_bar.progress((idx + 1) / len(sorted_eids))
                             
                             st.write("Menyortir & menyeleksi file revisi KBI...")
                             kbi_by_date = {}
@@ -890,7 +899,7 @@ with tab1:
                             for d_key, flist in kbi_by_date.items():
                                 revs = [x[0] for x in flist if x[1]]
                                 if revs:
-                                    final_kbi_pdfs.append(revs[-1]) 
+                                    final_kbi_pdfs.append(revs[-1]) # Karena kronologis, ini pasti yang TERBARU
                                 else:
                                     final_kbi_pdfs.append(flist[-1][0])
                                     
@@ -900,17 +909,13 @@ with tab1:
                                     except: pass
 
                             if final_kbi_pdfs:
-                                # --- Logika Penamaan File Output Dinamis (HANYA ZIP) ---
                                 sample_date = get_date_from_pdf(os.path.basename(final_kbi_pdfs[0]))
                                 if sample_date:
-                                    thn_kbi = sample_date[:4] # Ambil 4 digit tahun
-                                    bln_kbi_str = sample_date[4:6] # Ambil 2 digit bulan
+                                    thn_kbi = sample_date[:4]
+                                    bln_kbi_str = sample_date[4:6]
                                     dict_bulan = {'01':'JANUARI', '02':'FEBRUARI', '03':'MARET', '04':'APRIL', '05':'MEI', '06':'JUNI', '07':'JULI', '08':'AGUSTUS', '09':'SEPTEMBER', '10':'OKTOBER', '11':'NOVEMBER', '12':'DESEMBER'}
                                     nama_bln_kbi = dict_bulan.get(bln_kbi_str, "")
-                                    
-                                    # Hanya mengubah file ZIP: Rekap KBI Clearing House Report AGUSTUS 2026.zip
                                     zip_kbi_name = f"Rekap KBI Clearing House Report {nama_bln_kbi} {thn_kbi}.zip"
-                                # -------------------------------------------
                                 
                                 st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
                                 kbi_transactions = []
