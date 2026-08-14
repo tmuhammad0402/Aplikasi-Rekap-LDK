@@ -13,6 +13,7 @@ import zipfile
 import copy
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
+import pypdf  # PASTIKAN ANDA SUDAH MENGINSTALL pypdf: pip install pypdf
 
 # ============================================================
 # INTEGRASI GITHUB API (Untuk Penyimpanan Permanen)
@@ -566,6 +567,81 @@ def buat_template_triwulan(data_triwulan, tahun, triwulan_str, nama_bulan_list):
 
     return wb
 
+# --- TAMBAHAN: FUNGSI KOMPARASI PDF KBI VS EXCEL SHIFT ---
+MONTH_MAP = {
+    'januari': '01', 'january': '01', 'jan': '01',
+    'februari': '02', 'february': '02', 'feb': '02',
+    'maret': '03', 'march': '03', 'mar': '03',
+    'april': '04', 'apr': '04',
+    'mei': '05', 'may': '05',
+    'juni': '06', 'june': '06', 'jun': '06',
+    'juli': '07', 'july': '07', 'jul': '07',
+    'agustus': '08', 'august': '08', 'agu': '08', 'aug': '08',
+    'september': '09', 'sep': '09',
+    'oktober': '10', 'october': '10', 'okt': '10', 'oct': '10',
+    'november': '11', 'nov': '11',
+    'desember': '12', 'december': '12', 'des': '12', 'dec': '12'
+}
+
+def get_date_from_pdf(filename):
+    match = re.search(r'(\d{8})', filename)
+    if match: return match.group(1)
+    return None
+
+def get_date_from_excel(filename):
+    match = re.search(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', filename)
+    if match:
+        day = match.group(1).zfill(2)
+        month_str = match.group(2).lower()
+        year = match.group(3)
+        if month_str in MONTH_MAP:
+            return f"{year}{MONTH_MAP[month_str]}{day}"
+    match_fallback = re.search(r'(\d{8})', filename)
+    if match_fallback: return match_fallback.group(1)
+    return None
+
+def extract_pdf_data_komparasi(pdf_path):
+    transactions = []
+    try:
+        reader = pypdf.PdfReader(pdf_path)
+        text = "".join(page.extract_text() + "\n" for page in reader.pages)
+        
+        time_pattern = re.compile(r'^\d{1,2}:\d{2}:\d{2}$')
+        lines = [L.strip() for L in text.split('\n')]
+        
+        i, current_action = 0, None
+        while i < len(lines):
+            L = lines[i]
+            if L == 'Buy':
+                current_action = 'BUY'; i += 1; continue
+            elif L == 'Sell':
+                current_action = 'SELL'; i += 1; continue
+            
+            if time_pattern.match(L) and i + 7 < len(lines) and time_pattern.match(lines[i+1]):
+                account = lines[i+2]
+                if 'CCFM' not in account:
+                    qty = float(lines[i+4].replace(',', ''))
+                    transactions.append({'Customer': account, 'Action': current_action, 'Qty': qty})
+                i += 8
+            else:
+                i += 1
+        return pd.DataFrame(transactions)
+    except Exception as e:
+        return pd.DataFrame()
+
+def extract_excel_data_komparasi(excel_path):
+    try:
+        df_bursa = pd.read_excel(excel_path, sheet_name='BURSA', skiprows=3)
+        def get_customer(row):
+            if pd.isna(row.get('Action')): return None
+            return row['Buyer Client Code'] if row['Action'] == 'BUY' else row.get('Seller Client Code', None)
+                
+        df_bursa['Customer'] = df_bursa.apply(get_customer, axis=1)
+        df_bursa['Qty'] = pd.to_numeric(df_bursa['Lots'], errors='coerce')
+        return df_bursa[['Customer', 'Action', 'Qty']].dropna(subset=['Customer'])
+    except Exception as e:
+        return pd.DataFrame()
+
 # ============================================================
 # 3. GUI STREAMLIT MAIN
 # ============================================================
@@ -598,10 +674,10 @@ with st.expander("⚙️ Konfigurasi Logika Address Cabang LDK (Klik untuk membu
 config_data = load_config()
 
 # --- TABS UTAMA ---
-tab1, tab2, tab3 = st.tabs(["📥 1. Downloader Email", "📊 2. Ekstraksi & LDK", "📈 3. Builder Triwulan"])
+tab1, tab2, tab3 = st.tabs(["📥 1. Downloader & Komparasi", "📊 2. Ekstraksi & LDK", "📈 3. Builder Triwulan"])
 
 # ------------------------------------------------------------
-# TAB 1: DOWNLOADER EMAIL
+# TAB 1: DOWNLOADER EMAIL & KOMPARASI
 # ------------------------------------------------------------
 with tab1:
     st.subheader("Unduh File Gabungan Bursa dari Yahoo")
@@ -711,6 +787,104 @@ with tab1:
         if download_tab1_success:
             with open(dynamic_zip_filename, "rb") as f:
                 st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
+
+    # ------------------- FITUR BARU: KOMPARASI BATCH -------------------
+    st.markdown("---")
+    st.subheader("🔍 Komparasi Otomatis (Excel Laporan vs PDF KBI)")
+    with st.container(border=True):
+        st.write("Unggah file **ZIP** (atau multi-file) yang berisi file Laporan Excel (Shift) dan Laporan KBI (PDF) untuk dicocokkan otomatis berdasarkan tanggal.")
+        uploaded_compare = st.file_uploader("Upload ZIP atau File PDF/Excel", type=["zip", "pdf", "xlsx", "xls"], accept_multiple_files=True, key="compare_upload")
+        
+        compare_success = False
+        if st.button("🚀 Mulai Komparasi", type="primary", use_container_width=True, key="btn_compare"):
+            if not uploaded_compare:
+                st.warning("Silakan unggah minimal satu file/ZIP terlebih dahulu.")
+            else:
+                WORK_DIR_COMPARE = "temp_compare_dir"
+                if os.path.exists(WORK_DIR_COMPARE): shutil.rmtree(WORK_DIR_COMPARE)
+                os.makedirs(WORK_DIR_COMPARE, exist_ok=True)
+                
+                with st.status("Sedang memproses dan mencocokkan file...", expanded=True) as status:
+                    # Save and extract files
+                    for uploaded_file in uploaded_compare:
+                        file_path = os.path.join(WORK_DIR_COMPARE, uploaded_file.name)
+                        with open(file_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        if uploaded_file.name.lower().endswith('.zip'):
+                            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                                zip_ref.extractall(WORK_DIR_COMPARE)
+                    
+                    pdf_dict, excel_dict = {}, {}
+                    for root, dirs, files_in_dir in os.walk(WORK_DIR_COMPARE):
+                        for f_name in files_in_dir:
+                            if f_name.startswith('~') or f_name.startswith('.'): continue
+                            f_path = os.path.join(root, f_name)
+                            if f_name.lower().endswith('.pdf'):
+                                d_key = get_date_from_pdf(f_name)
+                                if d_key: pdf_dict[d_key] = f_path
+                            elif f_name.lower().endswith(('.xlsx', '.xls')):
+                                d_key = get_date_from_excel(f_name)
+                                if d_key: excel_dict[d_key] = f_path
+                                
+                    matched_dates = set(pdf_dict.keys()).intersection(set(excel_dict.keys()))
+                    
+                    if not matched_dates:
+                        status.update(label="Tidak ditemukan pasangan file PDF & Excel dengan tanggal yang sama.", state="error")
+                        st.info(f"Tanggal terdeteksi di PDF: {list(pdf_dict.keys())}")
+                        st.info(f"Tanggal terdeteksi di Excel: {list(excel_dict.keys())}")
+                    else:
+                        all_results = []
+                        for date_key in sorted(matched_dates):
+                            st.write(f"Memproses tanggal: {date_key}")
+                            df_pdf = extract_pdf_data_komparasi(pdf_dict[date_key])
+                            df_excel = extract_excel_data_komparasi(excel_dict[date_key])
+                            
+                            if df_pdf.empty or df_excel.empty:
+                                st.write(f"⚠️ Data kosong pada {date_key}, dilewati.")
+                                continue
+                            
+                            pdf_summary = df_pdf.groupby(['Customer', 'Action'])['Qty'].sum().reset_index()
+                            excel_summary = df_excel.groupby(['Customer', 'Action'])['Qty'].sum().reset_index()
+                            
+                            comp = pd.merge(excel_summary, pdf_summary, on=['Customer', 'Action'], how='outer', suffixes=('_Excel', '_PDF'))
+                            comp['Qty_Excel'] = comp['Qty_Excel'].fillna(0)
+                            comp['Qty_PDF'] = comp['Qty_PDF'].fillna(0)
+                            comp['Selisih'] = comp['Qty_Excel'] - comp['Qty_PDF']
+                            comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
+                            
+                            mismatches = comp[comp['Selisih'] != 0]
+                            if not mismatches.empty:
+                                st.write(f"❌ Ditemukan {len(mismatches)} baris ketidaksesuaian di {date_key}!")
+                            else:
+                                st.write(f"✅ Seluruh transaksi identik di tanggal {date_key}.")
+                                
+                            all_results.append(comp)
+                        
+                        if all_results:
+                            master_df = pd.concat(all_results, ignore_index=True)
+                            out_file = "Hasil_Komparasi_Massal.xlsx"
+                            master_df.to_excel(out_file, index=False)
+                            
+                            st.session_state['compare_master_file'] = out_file
+                            st.session_state['compare_master_df'] = master_df
+                            status.update(label="Berhasil menyelesaikan komparasi data massal!", state="complete")
+                            compare_success = True
+
+        if compare_success or 'compare_master_file' in st.session_state:
+            if os.path.exists(st.session_state.get('compare_master_file', '')):
+                st.write("---")
+                st.success("Tabel Hasil Pemeriksaan Silang (Cross-Check):")
+                st.dataframe(st.session_state['compare_master_df'], use_container_width=True, hide_index=True)
+                with open(st.session_state['compare_master_file'], "rb") as f:
+                    st.download_button(
+                        "📥 Unduh Laporan Komparasi (Excel)",
+                        data=f,
+                        file_name="Hasil_Komparasi_KBI_vs_Bursa.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True
+                    )
 
 # ------------------------------------------------------------
 # TAB 2: EKSTRAK & BUILDER LDK
