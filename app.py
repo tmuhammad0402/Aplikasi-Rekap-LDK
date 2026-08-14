@@ -1,6 +1,8 @@
 import streamlit as st
 import imaplib
 import email
+import email.utils
+import datetime
 from email.header import decode_header
 import os
 import shutil
@@ -719,7 +721,8 @@ with tab1:
 
                             def process_emails(email_ids, is_fallback=False):
                                 global download_count
-                                for idx, eid in enumerate(list(email_ids)):
+                                # Iterasi dibalik (reversed) agar memproses email TERBARU lebih dulu
+                                for idx, eid in enumerate(reversed(list(email_ids))):
                                     res, msg_data = mail.fetch(eid, "(RFC822)")
                                     if res == "OK":
                                         for response_part in msg_data:
@@ -734,10 +737,27 @@ with tab1:
                                                             fname = decode_mime_header(fname_raw)
                                                             _, ext = os.path.splitext(fname)
                                                             filename = clean_filename(f"{safe_subject}{ext}")
+                                                            
+                                                            # Tentukan Tanggal Logis (Mencegah duplikat tanggal yang sama)
                                                             date_key = extract_date_key(filename)
+                                                            if not date_key:
+                                                                date_key = extract_date_key(safe_subject)
+                                                            if not date_key:
+                                                                msg_date = msg.get("Date")
+                                                                if msg_date:
+                                                                    try:
+                                                                        parsed_tuple = email.utils.parsedate_tz(msg_date)
+                                                                        if parsed_tuple:
+                                                                            dt = datetime.datetime.fromtimestamp(email.utils.mktime_tz(parsed_tuple))
+                                                                            logical_dt = dt - datetime.timedelta(hours=8) # Toleransi shift malam agar dihitung tanggal sebelumnya
+                                                                            months = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
+                                                                            date_key = f"{logical_dt.day}_{months[logical_dt.month - 1]}_{logical_dt.year}"
+                                                                    except: pass
+                                                            
                                                             if date_key:
-                                                                if is_fallback and date_key in downloaded_dates: continue
-                                                                if not is_fallback: downloaded_dates.add(date_key)
+                                                                # Karena iterasi dari yang terbaru, jika date_key sudah pernah diproses, skip versi lamanya
+                                                                if date_key in downloaded_dates: continue
+                                                                downloaded_dates.add(date_key)
 
                                                             filepath = os.path.join(DOWNLOAD_DIR, filename)
                                                             base, counter = os.path.splitext(filename)[0], 1
