@@ -807,8 +807,10 @@ with tab1:
                 DIR_KBI = "lampiran_kbi_temp"
                 if os.path.exists(DIR_KBI): shutil.rmtree(DIR_KBI)
                 os.makedirs(DIR_KBI, exist_ok=True)
+                
                 queries_kbi = [q.strip() for q in subject_kbi.split(",") if q.strip()]
-                zip_kbi_name = f"Hasil_KBI_{clean_filename(queries_kbi[0])[:30]}.zip"
+                # Setup nama default ZIP, sedangkan nama Excel/PDF tetap bawaan aslinya[cite: 1]
+                zip_kbi_name = "Rekap KBI Clearing House Report.zip"
                 excel_kbi_name = f"Rekap_Gabungan_KBI_{clean_filename(queries_kbi[0])[:30]}.xlsx"
 
                 with st.status("Sedang memproses email KBI...", expanded=True) as status:
@@ -878,6 +880,18 @@ with tab1:
                                     except: pass
 
                             if final_kbi_pdfs:
+                                # --- Logika Penamaan File Output Dinamis (HANYA ZIP) ---[cite: 1]
+                                sample_date = get_date_from_pdf(os.path.basename(final_kbi_pdfs[0]))
+                                if sample_date:
+                                    thn_kbi = sample_date[:4] # Ambil 4 digit tahun
+                                    bln_kbi_str = sample_date[4:6] # Ambil 2 digit bulan
+                                    dict_bulan = {'01':'JANUARI', '02':'FEBRUARI', '03':'MARET', '04':'APRIL', '05':'MEI', '06':'JUNI', '07':'JULI', '08':'AGUSTUS', '09':'SEPTEMBER', '10':'OKTOBER', '11':'NOVEMBER', '12':'DESEMBER'}
+                                    nama_bln_kbi = dict_bulan.get(bln_kbi_str, "")
+                                    
+                                    # Hanya mengubah file ZIP: Rekap KBI Clearing House Report AGUSTUS 2026.zip
+                                    zip_kbi_name = f"Rekap KBI Clearing House Report {nama_bln_kbi} {thn_kbi}.zip"
+                                # -------------------------------------------
+                                
                                 st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
                                 kbi_transactions = []
                                 for pdf_path in final_kbi_pdfs:
@@ -1023,9 +1037,11 @@ with tab1:
                             excel_summary = df_excel.groupby(['Customer', 'Action'])['Qty'].sum().reset_index()
                             
                             comp = pd.merge(excel_summary, pdf_summary, on=['Customer', 'Action'], how='outer', suffixes=('_Excel', '_PDF'))
-                            comp['Qty_Excel'] = comp['Qty_Excel'].fillna(0)
-                            comp['Qty_PDF'] = comp['Qty_PDF'].fillna(0)
-                            comp['Selisih'] = comp['Qty_Excel'] - comp['Qty_PDF']
+                            # Merubah nama kolom sesuai permintaan[cite: 1]
+                            comp.rename(columns={'Qty_Excel': 'Pedagang', 'Qty_PDF': 'KBI'}, inplace=True)
+                            comp['Pedagang'] = comp['Pedagang'].fillna(0)
+                            comp['KBI'] = comp['KBI'].fillna(0)
+                            comp['Selisih'] = comp['Pedagang'] - comp['KBI']
                             comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
                             comp.insert(1, 'Sumber Excel', used_excel_file)
                             
