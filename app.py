@@ -810,13 +810,15 @@ with tab1:
     st.markdown("---")
     st.subheader("Unduh File Gabungan KBI dari Google")
     with st.container(border=True):
-        col3, col4 = st.columns(2)
+        col3, col4, col5 = st.columns(3)
         with col3:
             email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
             pass_kbi = st.secrets.get("GMAIL_PASSWORD", "")
         with col4:
             server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
             subject_kbi = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8")
+        with col5:
+            filter_kbi = st.text_input("Filter Nama File", value="traderegistrysummary", help="Ketik 'all' untuk mengunduh seluruh file")
 
         download_kbi_success = False
         if st.button("🚀 Mulai Ekstraksi KBI", type="primary", use_container_width=True, key="btn_kbi"):
@@ -868,7 +870,10 @@ with tab1:
                                                     fname_raw = part.get_filename()
                                                     if fname_raw:
                                                         fname = decode_mime_header(fname_raw)
-                                                        if 'traderegistrysummary' in fname.lower() and fname.lower().endswith('.pdf'):
+                                                        filter_val = filter_kbi.strip().lower()
+                                                        
+                                                        # Jika user mengisi 'all', atau nama file mengandung kata dari filter_kbi
+                                                        if filter_val == 'all' or filter_val in fname.lower():
                                                             safe_fname = clean_filename(fname)
                                                             if is_revisi_subj and 'REVISI' not in safe_fname.upper():
                                                                 name, ext = os.path.splitext(safe_fname)
@@ -889,12 +894,16 @@ with tab1:
                             
                             st.write("Menyortir & menyeleksi file revisi KBI...")
                             kbi_by_date = {}
+                            other_files = [] # Menyimpan file yang tidak punya tanggal (jika 'all' dipilih)
+                            
                             for fpath in downloaded_kbi:
                                 fname = os.path.basename(fpath)
                                 d_key = get_date_from_pdf(fname)
                                 if d_key:
                                     is_rev = 'REVISI' in fname.upper()
                                     kbi_by_date.setdefault(d_key, []).append((fpath, is_rev))
+                                else:
+                                    other_files.append(fpath)
                                     
                             final_kbi_pdfs = []
                             for d_key, flist in kbi_by_date.items():
@@ -904,13 +913,22 @@ with tab1:
                                 else:
                                     final_kbi_pdfs.append(flist[-1][0])
                                     
+                            final_kbi_pdfs.extend(other_files) # Masukkan kembali file-file lainnya
+                                    
                             for fpath in downloaded_kbi:
                                 if fpath not in final_kbi_pdfs:
                                     try: os.remove(fpath)
                                     except: pass
 
                             if final_kbi_pdfs:
-                                sample_date = get_date_from_pdf(os.path.basename(final_kbi_pdfs[0]))
+                                # Mencari sample date hanya dari file PDF untuk penamaan ZIP
+                                sample_date = None
+                                for f in final_kbi_pdfs:
+                                    d = get_date_from_pdf(os.path.basename(f))
+                                    if d:
+                                        sample_date = d
+                                        break
+                                
                                 if sample_date:
                                     thn_kbi = sample_date[:4]
                                     bln_kbi_str = sample_date[4:6]
@@ -921,33 +939,40 @@ with tab1:
                                 st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
                                 kbi_transactions = []
                                 for pdf_path in final_kbi_pdfs:
-                                    d_key = get_date_from_pdf(os.path.basename(pdf_path))
-                                    reader = pypdf.PdfReader(pdf_path)
-                                    text = "".join(page.extract_text() + "\n" for page in reader.pages)
-                                    lines = [L.strip() for L in text.split('\n')]
-                                    
-                                    i, c_act = 0, None
-                                    while i < len(lines):
-                                        L = lines[i]
-                                        if L == 'Buy': c_act = 'BUY'; i += 1; continue
-                                        elif L == 'Sell': c_act = 'SELL'; i += 1; continue
+                                    # Tambahkan pengaman agar file selain PDF di-skip pada tahap ekstraksi teks
+                                    if not pdf_path.lower().endswith('.pdf'):
+                                        continue
                                         
-                                        if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
-                                            account = lines[i+2]
-                                            if 'CCFM' not in account:
-                                                qty = float(lines[i+4].replace(',', ''))
-                                                kbi_transactions.append({
-                                                    'Tanggal (YYYYMMDD)': d_key,
-                                                    'Waktu Transaksi': L,
-                                                    'Account': account,
-                                                    'Commodity Code': lines[i+3],
-                                                    'Action': c_act,
-                                                    'Qty (Lot)': qty,
-                                                    'Price': float(lines[i+6].replace(',', ''))
-                                                })
-                                            i += 8
-                                        else:
-                                            i += 1
+                                    try:
+                                        d_key = get_date_from_pdf(os.path.basename(pdf_path))
+                                        reader = pypdf.PdfReader(pdf_path)
+                                        text = "".join(page.extract_text() + "\n" for page in reader.pages)
+                                        lines = [L.strip() for L in text.split('\n')]
+                                        
+                                        i, c_act = 0, None
+                                        while i < len(lines):
+                                            L = lines[i]
+                                            if L == 'Buy': c_act = 'BUY'; i += 1; continue
+                                            elif L == 'Sell': c_act = 'SELL'; i += 1; continue
+                                            
+                                            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
+                                                account = lines[i+2]
+                                                if 'CCFM' not in account:
+                                                    qty = float(lines[i+4].replace(',', ''))
+                                                    kbi_transactions.append({
+                                                        'Tanggal (YYYYMMDD)': d_key,
+                                                        'Waktu Transaksi': L,
+                                                        'Account': account,
+                                                        'Commodity Code': lines[i+3],
+                                                        'Action': c_act,
+                                                        'Qty (Lot)': qty,
+                                                        'Price': float(lines[i+6].replace(',', ''))
+                                                    })
+                                                i += 8
+                                            else:
+                                                i += 1
+                                    except Exception as ex_pdf:
+                                        st.write(f"Skipping extraction for {os.path.basename(pdf_path)}: {ex_pdf}")
                                 
                                 if kbi_transactions:
                                     df_kbi_gabung = pd.DataFrame(kbi_transactions)
@@ -959,10 +984,10 @@ with tab1:
                                     df_kbi_gabung.to_excel(excel_kbi_name, index=False)
                                 
                                 shutil.make_archive(zip_kbi_name.replace('.zip', ''), 'zip', DIR_KBI)
-                                status.update(label=f"Selesai! {len(final_kbi_pdfs)} file KBI ditarik dan digabung.", state="complete")
+                                status.update(label=f"Selesai! {len(final_kbi_pdfs)} lampiran ditarik dari email.", state="complete")
                                 download_kbi_success = True
                             else:
-                                status.update(label="Tidak ada file PDF TradeRegistrySummary yang valid.", state="error")
+                                status.update(label="Tidak ada file yang memenuhi kriteria filter.", state="error")
                                 
                     except Exception as e:
                         status.update(label=f"Error KBI: {e}", state="error")
@@ -974,7 +999,7 @@ with tab1:
             col_d1, col_d2 = st.columns(2)
             with col_d1:
                 with open(zip_kbi_name, "rb") as f:
-                    st.download_button("📥 Unduh Kumpulan PDF KBI (ZIP)", data=f, file_name=zip_kbi_name, mime="application/zip", type="primary", use_container_width=True)
+                    st.download_button("📥 Unduh Kumpulan Lampiran (ZIP)", data=f, file_name=zip_kbi_name, mime="application/zip", type="primary", use_container_width=True)
             with col_d2:
                 if os.path.exists(excel_kbi_name):
                     with open(excel_kbi_name, "rb") as f:
