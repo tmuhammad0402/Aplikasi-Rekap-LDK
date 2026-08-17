@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 import zipfile
 import copy
+import io
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 import pypdf
@@ -657,6 +658,15 @@ def extract_excel_data_komparasi(excel_path):
     except Exception as e:
         return pd.DataFrame()
 
+# --- FUNGSI GENERATOR TEMPLATE ACC ---
+def generate_template_acc_bytes():
+    df_acc = pd.DataFrame(columns=['Login', 'Nama', 'Group', 'contry', 'city', 'addres', 'id', 'date', 'levelrage', 'Balance'])
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_acc.to_excel(writer, index=False)
+    return output.getvalue()
+
+
 # ============================================================
 # 3. GUI STREAMLIT MAIN
 # ============================================================
@@ -1160,6 +1170,18 @@ with tab1:
 # ------------------------------------------------------------
 with tab2:
     st.subheader("Otomatisasi Peta Akun & Format LDK")
+    
+    # --- TAMBAHAN BARU: DOWNLOAD TEMPLATE ACC ---
+    st.download_button(
+        label="📄 Download Template List ACC",
+        data=generate_template_acc_bytes(),
+        file_name="List ACC.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Unduh template Excel kosong untuk daftar akun (List ACC) di sini."
+    )
+    st.write("---")
+    # --------------------------------------------
+    
     with st.container(border=True):
         col_a, col_b = st.columns(2)
         with col_a: zip_file_upload = st.file_uploader("📦 1. Upload ZIP Rekap Transaksi", type=["zip"])
