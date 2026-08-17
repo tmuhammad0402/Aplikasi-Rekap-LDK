@@ -658,12 +658,42 @@ def extract_excel_data_komparasi(excel_path):
     except Exception as e:
         return pd.DataFrame()
 
-# --- FUNGSI GENERATOR TEMPLATE ACC ---
+# --- FUNGSI GENERATOR TEMPLATE ACC (IDENTIK DENGAN REFERENSI) ---
 def generate_template_acc_bytes():
-    df_acc = pd.DataFrame(columns=['Login', 'Nama', 'Group', 'contry', 'city', 'addres', 'id', 'date', 'levelrage', 'Balance'])
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    
+    headers = ['Login', 'Nama', 'Group', 'contry', 'city', 'addres', 'id', 'date', 'levelrage', 'Balance']
+    ws.append(headers)
+    
+    # Menerapkan format visual yang 100% mirip dengan file List ACC.xlsx referensi
+    font_style = Font(name="Times New Roman", size=12, bold=True, color="000000")
+    fill_style = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid") # Hijau
+    align_style = Alignment(horizontal="center", vertical="center")
+    border_style = Border(
+        left=Side(style='medium'), 
+        right=Side(style='medium'), 
+        top=Side(style='medium'), 
+        bottom=Side(style='medium')
+    )
+    
+    for col_idx, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = font_style
+        cell.fill = fill_style
+        cell.alignment = align_style
+        cell.border = border_style
+        
+    widths = {'A': 12.0, 'B': 28.0, 'C': 24.0, 'D': 14.0, 'E': 12.0, 
+              'F': 28.0, 'G': 10.0, 'H': 14.0, 'I': 13.0, 'J': 13.0}
+    for col_letter, width in widths.items():
+        ws.column_dimensions[col_letter].width = width
+        
+    ws.row_dimensions[1].height = 21.95
+    
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_acc.to_excel(writer, index=False)
+    wb.save(output)
     return output.getvalue()
 
 
