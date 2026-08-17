@@ -935,6 +935,9 @@ with tab1:
                                     nama_bln_kbi = dict_bulan.get(bln_kbi_str, "")
                                     zip_kbi_name = f"Rekap KBI Clearing House Report {nama_bln_kbi} {thn_kbi}.zip"
                                 
+                                # --- BARIS BARU: Menyelaraskan nama file Excel dengan nama ZIP yang baru ---
+                                excel_kbi_name = zip_kbi_name.replace('.zip', '.xlsx')
+                                
                                 st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
                                 kbi_transactions = []
                                 for pdf_path in final_kbi_pdfs:
