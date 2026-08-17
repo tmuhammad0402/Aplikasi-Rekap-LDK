@@ -438,7 +438,8 @@ def proses_zip_triwulan(zip_buffer, akun_baru_list):
     with open("temp_tw.zip", "wb") as f: f.write(zip_buffer.getbuffer())
     with zipfile.ZipFile("temp_tw.zip", 'r') as z: z.extractall(EXTRACT_DIR)
     
-    file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and 'GABUNGAN' not in f.upper()])
+    # PERBAIKAN: Mengizinkan file KBI masuk ke proses data tanpa diblokir filter 'GABUNGAN'
+    file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and ('GABUNGAN' not in f.upper() or 'KBI' in f.upper())])
 
     if UTAMAKAN_REVISI:
         POLA_REVISI = r'\b(REV|REVISI|REVISED|PERBAIKAN|FIX|UPDATE)\b'
@@ -452,7 +453,25 @@ def proses_zip_triwulan(zip_buffer, akun_baru_list):
         try:
             xls = pd.ExcelFile(f)
             bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
-            data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0] if bursa_sheet else 0, header=None))
+            if bursa_sheet:
+                # Format Biasa (Shift Bursa)
+                data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0], header=None))
+            else:
+                # Deteksi format KBI (Gabungan Google)
+                df_temp = pd.read_excel(f, header=None)
+                if not df_temp.empty and 'Commodity Code' in str(df_temp.iloc[0].values):
+                    # Pemetaan otomatis struktur KBI ke struktur bawaan
+                    mapped_df = pd.DataFrame(columns=range(14))
+                    mapped_df[3] = df_temp[3]  # Commodity Code ke indeks 3
+                    mapped_df[6] = df_temp[5]  # Qty (Lot) ke indeks 6
+                    mapped_df[10] = df_temp[2] # Account ke indeks 10
+                    mapped_df[0] = df_temp[0]  # Tanggal
+                    
+                    mapped_df = mapped_df[~mapped_df[3].astype(str).str.contains('Commodity Code', case=False)]
+                    mapped_df = mapped_df[~mapped_df[0].astype(str).str.contains('TOTAL KESELURUHAN', case=False)]
+                    data_dfs.append(mapped_df)
+                else:
+                    data_dfs.append(df_temp)
         except Exception: pass
         
     if not data_dfs: return 0, 0.0, 0, 0.0
@@ -1160,7 +1179,9 @@ with tab2:
                 with st.status("Memproses injeksi data LDK...", expanded=True) as status:
                     try:
                         with zipfile.ZipFile("temp_rekap.zip", 'r') as z: z.extractall(EXTRACT_DIR)
-                        file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and 'GABUNGAN' not in f.upper()])
+                        
+                        # PERBAIKAN: Mengizinkan file KBI masuk ke proses data tanpa diblokir filter 'GABUNGAN'
+                        file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and ('GABUNGAN' not in f.upper() or 'KBI' in f.upper())])
 
                         if UTAMAKAN_REVISI:
                             POLA_REVISI = r'\b(REV|REVISI|REVISED|PERBAIKAN|FIX|UPDATE)\b'
@@ -1191,7 +1212,25 @@ with tab2:
                                 try:
                                     xls = pd.ExcelFile(f)
                                     bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
-                                    data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0] if bursa_sheet else 0, header=None))
+                                    if bursa_sheet:
+                                        # Format Biasa (Shift Bursa)
+                                        data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0], header=None))
+                                    else:
+                                        # Deteksi format KBI (Gabungan Google)
+                                        df_temp = pd.read_excel(f, header=None)
+                                        if not df_temp.empty and 'Commodity Code' in str(df_temp.iloc[0].values):
+                                            # Pemetaan otomatis struktur KBI ke struktur bawaan
+                                            mapped_df = pd.DataFrame(columns=range(14))
+                                            mapped_df[3] = df_temp[3]  # Commodity Code ke indeks 3
+                                            mapped_df[6] = df_temp[5]  # Qty (Lot) ke indeks 6
+                                            mapped_df[10] = df_temp[2] # Account ke indeks 10
+                                            mapped_df[0] = df_temp[0]  # Tanggal / identifier
+                                            
+                                            mapped_df = mapped_df[~mapped_df[3].astype(str).str.contains('Commodity Code', case=False)]
+                                            mapped_df = mapped_df[~mapped_df[0].astype(str).str.contains('TOTAL KESELURUHAN', case=False)]
+                                            data_dfs.append(mapped_df)
+                                        else:
+                                            data_dfs.append(df_temp)
                                 except Exception: pass
                             
                             if not data_dfs: status.update(label="Gagal mengekstrak isi Excel.", state="error")
