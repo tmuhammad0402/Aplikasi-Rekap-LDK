@@ -810,15 +810,14 @@ with tab1:
     st.markdown("---")
     st.subheader("Unduh File Gabungan KBI dari Google")
     with st.container(border=True):
-        col3, col4, col5 = st.columns(3)
+        col3, col4 = st.columns(2)
         with col3:
             email_kbi = st.text_input("Akun Email Google", value="centralfutures098@gmail.com")
             pass_kbi = st.secrets.get("GMAIL_PASSWORD", "")
+            filter_kbi = st.text_input("Filter Nama File", value="traderegistrysummary", help="Ketik 'all' untuk mengunduh seluruh file")
         with col4:
             server_kbi = st.text_input("Server IMAP Google", value="imap.gmail.com")
             subject_kbi = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8")
-        with col5:
-            filter_kbi = st.text_input("Filter Nama File", value="traderegistrysummary", help="Ketik 'all' untuk mengunduh seluruh file")
 
         download_kbi_success = False
         if st.button("🚀 Mulai Ekstraksi KBI", type="primary", use_container_width=True, key="btn_kbi"):
