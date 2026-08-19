@@ -1422,9 +1422,10 @@ with tab3:
         with col_fl1:
             email_fl = st.text_input("Akun Email Google (FeesListing)", value="centralfutures098@gmail.com", key="email_fl")
             pass_fl = st.secrets.get("GMAIL_PASSWORD", "")
+            filter_fl = st.text_input("Filter Nama File", value="FeesListing", key="filter_fl", help="Ketik 'all' untuk mengunduh seluruh file")
         with col_fl2:
             server_fl = st.text_input("Server IMAP Google (FeesListing)", value="imap.gmail.com", key="server_fl")
-            subject_fl = st.text_input("Subjek Pencarian FeesListing", value="Fees Listing", key="subj_fl")
+            subject_fl = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8", key="subj_fl")
             
         if st.button("🚀 Mulai Ekstraksi FeesListing", type="primary", use_container_width=True, key="btn_fl"):
             if not pass_fl:
@@ -1469,7 +1470,10 @@ with tab3:
                                                     fname_raw = part.get_filename()
                                                     if fname_raw:
                                                         fname = decode_mime_header(fname_raw)
-                                                        if "feeslisting" in fname.lower() and fname.lower().endswith(".pdf"):
+                                                        filter_val = filter_fl.strip().lower()
+                                                        
+                                                        # Hanya memproses file yang lolos filter input teks dan berakhiran .pdf
+                                                        if (filter_val == 'all' or filter_val in fname.lower()) and fname.lower().endswith(".pdf"):
                                                             safe_fname = clean_filename(fname)
                                                             base, counter = os.path.splitext(safe_fname)[0], 1
                                                             filepath = os.path.join(DIR_FL, safe_fname)
