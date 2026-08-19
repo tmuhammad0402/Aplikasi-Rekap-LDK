@@ -74,6 +74,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# === TAMBAHKAN KODE INI UNTUK MENYEMBUNYIKAN WATERMARK & MENU GITHUB ===
+hide_streamlit_style = """
+            <style>
+            /* Menyembunyikan menu di kanan atas (GitHub, Fork, dll) */
+            #MainMenu {visibility: hidden;}
+            header {visibility: hidden;}
+            [data-testid="stToolbar"] {visibility: hidden !important;}
+            
+            /* Menyembunyikan footer (Hosted with Streamlit / Created by) */
+            footer {visibility: hidden;}
+            .stApp > header {
+                background-color: transparent;
+            }
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# =======================================================================
+
 # ============================================================
 # 2. LOGIKA BACKEND & FUNGSI PENDUKUNG
 # ============================================================
