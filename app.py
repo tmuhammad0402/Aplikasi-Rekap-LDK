@@ -439,7 +439,6 @@ def proses_zip_triwulan(zip_buffer, akun_baru_list):
     with open("temp_tw.zip", "wb") as f: f.write(zip_buffer.getbuffer())
     with zipfile.ZipFile("temp_tw.zip", 'r') as z: z.extractall(EXTRACT_DIR)
     
-    # PERBAIKAN: Mengizinkan file KBI masuk ke proses data tanpa diblokir filter 'GABUNGAN'
     file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and ('GABUNGAN' not in f.upper() or 'KBI' in f.upper())])
 
     if UTAMAKAN_REVISI:
@@ -455,18 +454,15 @@ def proses_zip_triwulan(zip_buffer, akun_baru_list):
             xls = pd.ExcelFile(f)
             bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
             if bursa_sheet:
-                # Format Biasa (Shift Bursa)
                 data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0], header=None))
             else:
-                # Deteksi format KBI (Gabungan Google)
                 df_temp = pd.read_excel(f, header=None)
                 if not df_temp.empty and 'Commodity Code' in str(df_temp.iloc[0].values):
-                    # Pemetaan otomatis struktur KBI ke struktur bawaan
                     mapped_df = pd.DataFrame(columns=range(14))
-                    mapped_df[3] = df_temp[3]  # Commodity Code ke indeks 3
-                    mapped_df[6] = df_temp[5]  # Qty (Lot) ke indeks 6
-                    mapped_df[10] = df_temp[2] # Account ke indeks 10
-                    mapped_df[0] = df_temp[0]  # Tanggal
+                    mapped_df[3] = df_temp[3]
+                    mapped_df[6] = df_temp[5]
+                    mapped_df[10] = df_temp[2]
+                    mapped_df[0] = df_temp[0]
                     
                     mapped_df = mapped_df[~mapped_df[3].astype(str).str.contains('Commodity Code', case=False)]
                     mapped_df = mapped_df[~mapped_df[0].astype(str).str.contains('TOTAL KESELURUHAN', case=False)]
@@ -658,7 +654,6 @@ def extract_excel_data_komparasi(excel_path):
     except Exception as e:
         return pd.DataFrame()
 
-# --- FUNGSI GENERATOR TEMPLATE ACC (IDENTIK DENGAN REFERENSI) ---
 def generate_template_acc_bytes():
     wb = Workbook()
     ws = wb.active
@@ -667,7 +662,6 @@ def generate_template_acc_bytes():
     headers = ['Login', 'Nama', 'Group', 'contry', 'city', 'addres', 'id', 'date', 'levelrage', 'Balance']
     ws.append(headers)
     
-    # Menerapkan format visual yang 100% mirip dengan file List ACC.xlsx referensi
     font_style = Font(name="Times New Roman", size=12, bold=True, color="000000")
     fill_style = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid") # Hijau
     align_style = Alignment(horizontal="center", vertical="center")
@@ -780,7 +774,6 @@ with tab1:
 
                             def process_emails(email_ids, is_fallback=False):
                                 global download_count
-                                # PERBAIKAN: Urutkan ID secara menurun (Descending) agar email dengan ID terbesar (terbaru) diproses lebih dulu
                                 sorted_eids = sorted(list(email_ids), key=lambda x: int(x), reverse=True)
                                 for idx, eid in enumerate(sorted_eids):
                                     res, msg_data = mail.fetch(eid, "(RFC822)")
@@ -798,7 +791,6 @@ with tab1:
                                                             _, ext = os.path.splitext(fname)
                                                             filename = clean_filename(f"{safe_subject}{ext}")
                                                             
-                                                            # Tentukan Tanggal Logis (Mencegah duplikat tanggal yang sama)
                                                             date_key = extract_date_key(filename)
                                                             if not date_key:
                                                                 date_key = extract_date_key(safe_subject)
@@ -809,13 +801,12 @@ with tab1:
                                                                         parsed_tuple = email.utils.parsedate_tz(msg_date)
                                                                         if parsed_tuple:
                                                                             dt = datetime.datetime.fromtimestamp(email.utils.mktime_tz(parsed_tuple))
-                                                                            logical_dt = dt - datetime.timedelta(hours=8) # Toleransi shift malam agar dihitung tanggal sebelumnya
+                                                                            logical_dt = dt - datetime.timedelta(hours=8)
                                                                             months = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
                                                                             date_key = f"{logical_dt.day}_{months[logical_dt.month - 1]}_{logical_dt.year}"
                                                                     except: pass
                                                             
                                                             if date_key:
-                                                                # Karena iterasi dari yang terbaru, jika date_key sudah pernah diproses, skip versi lamanya
                                                                 if date_key in downloaded_dates: continue
                                                                 downloaded_dates.add(date_key)
 
@@ -865,7 +856,7 @@ with tab1:
             with open(dynamic_zip_filename, "rb") as f:
                 st.download_button("📥 Unduh Hasil Ekstraksi (ZIP)", data=f, file_name=dynamic_zip_filename, mime="application/zip", type="primary", use_container_width=True)
 
-    # ------------------- FITUR BARU: DOWNLOADER GMAIL KBI -------------------
+    # ------------------- DOWNLOADER GMAIL KBI -------------------
     st.markdown("---")
     st.subheader("Unduh File Gabungan KBI dari Google")
     with st.container(border=True):
@@ -910,7 +901,6 @@ with tab1:
                             downloaded_kbi = []
                             progress_bar = st.progress(0)
                             
-                            # PERBAIKAN: Urutkan ID Email agar dibaca secara kronologis (dari lama ke baru)
                             sorted_eids = sorted(list(email_ids), key=lambda x: int(x))
                             
                             for idx, eid in enumerate(sorted_eids):
@@ -930,14 +920,12 @@ with tab1:
                                                         fname = decode_mime_header(fname_raw)
                                                         filter_val = filter_kbi.strip().lower()
                                                         
-                                                        # Jika user mengisi 'all', atau nama file mengandung kata dari filter_kbi
                                                         if filter_val == 'all' or filter_val in fname.lower():
                                                             safe_fname = clean_filename(fname)
                                                             if is_revisi_subj and 'REVISI' not in safe_fname.upper():
                                                                 name, ext = os.path.splitext(safe_fname)
                                                                 safe_fname = f"{name}_REVISI{ext}"
                                                             
-                                                            # PERBAIKAN: Sistem anti-timpa (Collision Prevention)
                                                             base, counter = os.path.splitext(safe_fname)[0], 1
                                                             filepath = os.path.join(DIR_KBI, safe_fname)
                                                             while os.path.exists(filepath):
@@ -952,7 +940,7 @@ with tab1:
                             
                             st.write("Menyortir & menyeleksi file revisi KBI...")
                             kbi_by_date = {}
-                            other_files = [] # Menyimpan file yang tidak punya tanggal (jika 'all' dipilih)
+                            other_files = [] 
                             
                             for fpath in downloaded_kbi:
                                 fname = os.path.basename(fpath)
@@ -967,11 +955,11 @@ with tab1:
                             for d_key, flist in kbi_by_date.items():
                                 revs = [x[0] for x in flist if x[1]]
                                 if revs:
-                                    final_kbi_pdfs.append(revs[-1]) # Karena kronologis, ini pasti yang TERBARU
+                                    final_kbi_pdfs.append(revs[-1]) 
                                 else:
                                     final_kbi_pdfs.append(flist[-1][0])
                                     
-                            final_kbi_pdfs.extend(other_files) # Masukkan kembali file-file lainnya
+                            final_kbi_pdfs.extend(other_files) 
                                     
                             for fpath in downloaded_kbi:
                                 if fpath not in final_kbi_pdfs:
@@ -979,7 +967,6 @@ with tab1:
                                     except: pass
 
                             if final_kbi_pdfs:
-                                # Mencari sample date hanya dari file PDF untuk penamaan ZIP
                                 sample_date = None
                                 for f in final_kbi_pdfs:
                                     d = get_date_from_pdf(os.path.basename(f))
@@ -994,13 +981,11 @@ with tab1:
                                     nama_bln_kbi = dict_bulan.get(bln_kbi_str, "")
                                     zip_kbi_name = f"Rekap KBI Clearing House Report {nama_bln_kbi} {thn_kbi}.zip"
                                 
-                                # --- BARIS BARU: Menyelaraskan nama file Excel dengan nama ZIP yang baru ---
                                 excel_kbi_name = zip_kbi_name.replace('.zip', '.xlsx')
                                 
                                 st.write("Mengekstrak data transaksi (Laporan Gabungan)...")
                                 kbi_transactions = []
                                 for pdf_path in final_kbi_pdfs:
-                                    # Tambahkan pengaman agar file selain PDF di-skip pada tahap ekstraksi teks
                                     if not pdf_path.lower().endswith('.pdf'):
                                         continue
                                         
@@ -1066,7 +1051,7 @@ with tab1:
                     with open(excel_kbi_name, "rb") as f:
                         st.download_button("📊 Unduh Rekap Gabungan KBI (Excel)", data=f, file_name=excel_kbi_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
-    # ------------------- FITUR BARU: KOMPARASI BATCH (DENGAN SCORING FILE) -------------------
+    # ------------------- KOMPARASI BATCH (DENGAN SCORING FILE) -------------------
     st.markdown("---")
     st.subheader("🔍 Komparasi Otomatis (Excel Laporan vs PDF KBI)")
     with st.container(border=True):
@@ -1105,7 +1090,8 @@ with tab1:
                                 if d_key: pdf_dict[d_key] = f_path
                                 
                             elif f_name.lower().endswith(('.xlsx', '.xls')):
-                                if "GABUNGAN" in f_name.upper(): continue # MENGABAIKAN FILE GABUNGAN
+                                # PERBAIKAN: MENGABAIKAN FILE GABUNGAN
+                                if "GABUNGAN" in f_name.upper(): continue 
                                 
                                 d_key = get_date_from_excel(f_name)
                                 if d_key:
@@ -1152,7 +1138,6 @@ with tab1:
                             
                             comp = pd.merge(excel_summary, pdf_summary, on=['Customer', 'Action'], how='outer', suffixes=('_Excel', '_PDF'))
                             
-                            # --- PERBAIKAN: Pembulatan & Presisi ---
                             comp.rename(columns={'Qty_Excel': 'Pedagang', 'Qty_PDF': 'KBI'}, inplace=True)
                             comp['Pedagang'] = comp['Pedagang'].fillna(0).round(4)
                             comp['KBI'] = comp['KBI'].fillna(0).round(4)
@@ -1161,21 +1146,28 @@ with tab1:
                             comp.insert(0, 'Tanggal (YYYYMMDD)', date_key)
                             comp.insert(1, 'Sumber Excel', used_excel_file)
                             
-                            # Filter ketidaksesuaian menggunakan toleransi presisi desimal
                             mismatches = comp[comp['Selisih'].abs() > 0.0001]
                             
                             if not mismatches.empty:
                                 st.write(f"❌ Ditemukan {len(mismatches)} baris ketidaksesuaian di {date_key}!")
                             else:
                                 st.write(f"✅ Seluruh transaksi identik di tanggal {date_key}.")
-                            # ----------------------------------------
                                 
                             all_results.append(comp)
                         
                         if all_results:
                             master_df = pd.concat(all_results, ignore_index=True)
                             out_file = "Hasil_Komparasi_Massal.xlsx"
-                            master_df.to_excel(out_file, index=False)
+                            
+                            # PERBAIKAN: Fungsi untuk memberi highlight baris yang memiliki selisih
+                            def highlight_diff(row):
+                                if pd.notna(row.get('Selisih')) and abs(row['Selisih']) > 0.0001:
+                                    return ['background-color: #FFCCCC; color: black'] * len(row)
+                                return [''] * len(row)
+                            
+                            # Terapkan styling saat mengekspor ke Excel
+                            styled_df = master_df.style.apply(highlight_diff, axis=1)
+                            styled_df.to_excel(out_file, index=False, engine='openpyxl')
                             
                             st.session_state['compare_master_file'] = out_file
                             st.session_state['compare_master_df'] = master_df
@@ -1186,7 +1178,19 @@ with tab1:
             if os.path.exists(st.session_state.get('compare_master_file', '')):
                 st.write("---")
                 st.success("Tabel Hasil Pemeriksaan Silang (Cross-Check):")
-                st.dataframe(st.session_state['compare_master_df'], use_container_width=True, hide_index=True)
+                
+                # Menampilkan Dataframe dengan Highlight di antarmuka web Streamlit
+                def highlight_diff(row):
+                    if pd.notna(row.get('Selisih')) and abs(row['Selisih']) > 0.0001:
+                        return ['background-color: #FFCCCC; color: black'] * len(row)
+                    return [''] * len(row)
+                    
+                st.dataframe(
+                    st.session_state['compare_master_df'].style.apply(highlight_diff, axis=1), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
                 with open(st.session_state['compare_master_file'], "rb") as f:
                     st.download_button(
                         "📥 Unduh Laporan Komparasi (Excel)",
@@ -1203,7 +1207,6 @@ with tab1:
 with tab2:
     st.subheader("Otomatisasi Peta Akun & Format LDK")
     
-    # --- TAMBAHAN BARU: DOWNLOAD TEMPLATE ACC ---
     st.download_button(
         label="📄 Download Template List ACC",
         data=generate_template_acc_bytes(),
@@ -1212,7 +1215,6 @@ with tab2:
         help="Unduh template Excel kosong untuk daftar akun (List ACC) di sini."
     )
     st.write("---")
-    # --------------------------------------------
     
     with st.container(border=True):
         col_a, col_b = st.columns(2)
@@ -1234,7 +1236,6 @@ with tab2:
                     try:
                         with zipfile.ZipFile("temp_rekap.zip", 'r') as z: z.extractall(EXTRACT_DIR)
                         
-                        # PERBAIKAN: Mengizinkan file KBI masuk ke proses data tanpa diblokir filter 'GABUNGAN'
                         file_rekaps = sorted([os.path.join(r, f) for r, d, fl in os.walk(EXTRACT_DIR) if '__MACOSX' not in r for f in fl if f.endswith(('.xlsx', '.xls')) and not f.startswith(('~', '.')) and ('GABUNGAN' not in f.upper() or 'KBI' in f.upper())])
 
                         if UTAMAKAN_REVISI:
@@ -1267,18 +1268,15 @@ with tab2:
                                     xls = pd.ExcelFile(f)
                                     bursa_sheet = [s for s in xls.sheet_names if "BURSA" in s.upper()]
                                     if bursa_sheet:
-                                        # Format Biasa (Shift Bursa)
                                         data_dfs.append(pd.read_excel(f, sheet_name=bursa_sheet[0], header=None))
                                     else:
-                                        # Deteksi format KBI (Gabungan Google)
                                         df_temp = pd.read_excel(f, header=None)
                                         if not df_temp.empty and 'Commodity Code' in str(df_temp.iloc[0].values):
-                                            # Pemetaan otomatis struktur KBI ke struktur bawaan
                                             mapped_df = pd.DataFrame(columns=range(14))
-                                            mapped_df[3] = df_temp[3]  # Commodity Code ke indeks 3
-                                            mapped_df[6] = df_temp[5]  # Qty (Lot) ke indeks 6
-                                            mapped_df[10] = df_temp[2] # Account ke indeks 10
-                                            mapped_df[0] = df_temp[0]  # Tanggal / identifier
+                                            mapped_df[3] = df_temp[3]  
+                                            mapped_df[6] = df_temp[5]  
+                                            mapped_df[10] = df_temp[2] 
+                                            mapped_df[0] = df_temp[0]  
                                             
                                             mapped_df = mapped_df[~mapped_df[3].astype(str).str.contains('Commodity Code', case=False)]
                                             mapped_df = mapped_df[~mapped_df[0].astype(str).str.contains('TOTAL KESELURUHAN', case=False)]
