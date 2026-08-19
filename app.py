@@ -690,6 +690,53 @@ def generate_template_acc_bytes():
     wb.save(output)
     return output.getvalue()
 
+# --- FUNGSI EKSTRAKSI DATA FEESLISTING (BBJ PRIMER) ---
+def extract_fees_listing_data(pdf_path):
+    results = []
+    try:
+        reader = pypdf.PdfReader(pdf_path)
+        text = "".join(page.extract_text() + "\n" for page in reader.pages)
+        
+        # Cari blok BBJ Primer
+        block_match = re.search(r'BBJ Primer(.*?)BBJ SPA', text, re.IGNORECASE | re.DOTALL)
+        if not block_match:
+            block_match = re.search(r'BBJ Primer(.*?)Total', text, re.IGNORECASE | re.DOTALL)
+        
+        if block_match:
+            block = block_match.group(1)
+            # Bersihkan newline
+            clean_block = re.sub(r'[\n|\r|]', ' ', block)
+            
+            num_pat = r'\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?'
+            # Cari Pola: [Kode Produk] [5 angka/fee] [Qty] [Total]
+            # Karena Qty adalah urutan angka ke-5 setelah nama Product
+            pattern = r'([A-Z0-9]{3,15}(?:\s+[A-Z0-9]{1,10})?)\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')'
+            
+            matches = re.finditer(pattern, clean_block)
+            for m in matches:
+                product = m.group(1).strip()
+                qty_str = m.group(6)
+                
+                # Standarisasi koma/titik untuk diubah jadi Float
+                val_str = re.sub(r'[^\d.,]', '', qty_str)
+                if ',' in val_str and '.' in val_str:
+                    if val_str.rfind(',') > val_str.rfind('.'):
+                        val_str = val_str.replace('.', '').replace(',', '.')
+                    else:
+                        val_str = val_str.replace(',', '')
+                else:
+                    sep = ',' if ',' in val_str else '.' if '.' in val_str else None
+                    if sep:
+                        parts = val_str.split(sep)
+                        val_str = "".join(parts[:-1]) + "." + parts[-1]
+                try:
+                    results.append({'Product': product, 'Qty': float(val_str)})
+                except:
+                    pass
+    except Exception as e:
+        pass
+    return results
+
 
 # ============================================================
 # 3. GUI STREAMLIT MAIN
@@ -722,7 +769,7 @@ with st.expander("⚙️ Konfigurasi Logika Address Cabang LDK (Klik untuk membu
 config_data = load_config()
 
 # --- TABS UTAMA ---
-tab1, tab2, tab3 = st.tabs(["📥 1. Downloader & Komparasi", "📊 2. Ekstraksi & LDK", "📈 3. Builder Triwulan"])
+tab1, tab2, tab3, tab4 = st.tabs(["📥 1. Downloader & Komparasi", "📊 2. Ekstraksi & LDK", "📈 3. Total Multi", "📆 4. Builder Triwulan"])
 
 # ------------------------------------------------------------
 # TAB 1: DOWNLOADER EMAIL & KOMPARASI
@@ -1090,7 +1137,6 @@ with tab1:
                                 if d_key: pdf_dict[d_key] = f_path
                                 
                             elif f_name.lower().endswith(('.xlsx', '.xls')):
-                                # PERBAIKAN: MENGABAIKAN FILE GABUNGAN
                                 if "GABUNGAN" in f_name.upper(): continue 
                                 
                                 d_key = get_date_from_excel(f_name)
@@ -1159,13 +1205,11 @@ with tab1:
                             master_df = pd.concat(all_results, ignore_index=True)
                             out_file = "Hasil_Komparasi_Massal.xlsx"
                             
-                            # PERBAIKAN: Fungsi untuk memberi highlight baris yang memiliki selisih
                             def highlight_diff(row):
                                 if pd.notna(row.get('Selisih')) and abs(row['Selisih']) > 0.0001:
                                     return ['background-color: #FFCCCC; color: black'] * len(row)
                                 return [''] * len(row)
                             
-                            # Terapkan styling saat mengekspor ke Excel
                             styled_df = master_df.style.apply(highlight_diff, axis=1)
                             styled_df.to_excel(out_file, index=False, engine='openpyxl')
                             
@@ -1179,7 +1223,6 @@ with tab1:
                 st.write("---")
                 st.success("Tabel Hasil Pemeriksaan Silang (Cross-Check):")
                 
-                # Menampilkan Dataframe dengan Highlight di antarmuka web Streamlit
                 def highlight_diff(row):
                     if pd.notna(row.get('Selisih')) and abs(row['Selisih']) > 0.0001:
                         return ['background-color: #FFCCCC; color: black'] * len(row)
@@ -1370,9 +1413,127 @@ with tab2:
                 st.download_button("🎉 Unduh Template LDK (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------
-# TAB 3: BUILDER LAPORAN TRIWULAN
+# TAB 3: TOTAL MULTI (FEES LISTING)
 # ------------------------------------------------------------
 with tab3:
+    st.subheader("Unduh & Gabung Total Qty FeesListing")
+    with st.container(border=True):
+        col_fl1, col_fl2 = st.columns(2)
+        with col_fl1:
+            email_fl = st.text_input("Akun Email Google (FeesListing)", value="centralfutures098@gmail.com", key="email_fl")
+            pass_fl = st.secrets.get("GMAIL_PASSWORD", "")
+        with col_fl2:
+            server_fl = st.text_input("Server IMAP Google (FeesListing)", value="imap.gmail.com", key="server_fl")
+            subject_fl = st.text_input("Subjek Pencarian FeesListing", value="Fees Listing", key="subj_fl")
+            
+        if st.button("🚀 Mulai Ekstraksi FeesListing", type="primary", use_container_width=True, key="btn_fl"):
+            if not pass_fl:
+                st.error("⚠️ Password Gmail belum dikonfigurasi di Streamlit Secrets!")
+            elif not subject_fl:
+                st.warning("Pencarian dibatalkan karena subjek kosong.")
+            else:
+                DIR_FL = "lampiran_feeslisting_temp"
+                if os.path.exists(DIR_FL): shutil.rmtree(DIR_FL)
+                os.makedirs(DIR_FL, exist_ok=True)
+                
+                queries_fl = [q.strip() for q in subject_fl.split(",") if q.strip()]
+                zip_fl_name = "Kumpulan_FeesListing.zip"
+                
+                with st.status("Sedang memproses email FeesListing...", expanded=True) as status:
+                    try:
+                        st.write("Menghubungkan ke server Gmail IMAP...")
+                        mail_fl = imaplib.IMAP4_SSL(server_fl)
+                        mail_fl.login(email_fl, pass_fl)
+                        mail_fl.select('"INBOX"')
+                        
+                        email_ids = set()
+                        for q in queries_fl:
+                            email_ids.update(do_imap_search(mail_fl, q))
+                            
+                        if not email_ids:
+                            status.update(label="Tidak ada email FeesListing ditemukan.", state="error")
+                        else:
+                            downloaded_fl = []
+                            progress_bar = st.progress(0)
+                            sorted_eids = sorted(list(email_ids), key=lambda x: int(x))
+                            
+                            for idx, eid in enumerate(sorted_eids):
+                                res, msg_data = mail_fl.fetch(eid, "(RFC822)")
+                                if res == "OK":
+                                    for response_part in msg_data:
+                                        if isinstance(response_part, tuple):
+                                            msg = email.message_from_bytes(response_part[1])
+                                            if msg.is_multipart():
+                                                for part in msg.walk():
+                                                    if part.get_content_maintype() == 'multipart': continue
+                                                    fname_raw = part.get_filename()
+                                                    if fname_raw:
+                                                        fname = decode_mime_header(fname_raw)
+                                                        if "feeslisting" in fname.lower() and fname.lower().endswith(".pdf"):
+                                                            safe_fname = clean_filename(fname)
+                                                            base, counter = os.path.splitext(safe_fname)[0], 1
+                                                            filepath = os.path.join(DIR_FL, safe_fname)
+                                                            while os.path.exists(filepath):
+                                                                filepath = os.path.join(DIR_FL, f"{base}_{counter}.pdf")
+                                                                counter += 1
+                                                            with open(filepath, "wb") as f:
+                                                                payload = part.get_payload(decode=True)
+                                                                f.write(payload if payload else b"")
+                                                            downloaded_fl.append(filepath)
+                                progress_bar.progress((idx + 1) / len(sorted_eids))
+                                
+                            if downloaded_fl:
+                                st.write("Mengekstrak data Product BBJ Primer dari FeesListing...")
+                                all_fl_data = []
+                                for pdf_path in downloaded_fl:
+                                    extracted = extract_fees_listing_data(pdf_path)
+                                    all_fl_data.extend(extracted)
+                                    
+                                if all_fl_data:
+                                    df_fl = pd.DataFrame(all_fl_data)
+                                    df_summary = df_fl.groupby('Product')['Qty'].sum().reset_index()
+                                    
+                                    # Menambahkan total qty
+                                    total_qty_fl = df_summary['Qty'].sum()
+                                    df_summary.loc[len(df_summary)] = ["TOTAL KESELURUHAN", total_qty_fl]
+                                    
+                                    excel_fl_name = "Rekap_Total_FeesListing.xlsx"
+                                    df_summary.to_excel(excel_fl_name, index=False)
+                                    
+                                    st.session_state['fl_df'] = df_summary
+                                    st.session_state['fl_excel'] = excel_fl_name
+                                    
+                                shutil.make_archive(zip_fl_name.replace('.zip', ''), 'zip', DIR_FL)
+                                st.session_state['fl_zip'] = zip_fl_name
+                                status.update(label=f"Selesai! {len(downloaded_fl)} file FeesListing diproses.", state="complete")
+                            else:
+                                status.update(label="Tidak ada file PDF FeesListing yang valid ditemukan.", state="error")
+                    except Exception as e:
+                        status.update(label=f"Error FeesListing: {e}", state="error")
+                    finally:
+                        try: mail_fl.close(); mail_fl.logout()
+                        except: pass
+
+        if 'fl_df' in st.session_state:
+            st.write("---")
+            st.markdown("### 📊 Rekapitulasi Produk (BBJ Primer)")
+            st.dataframe(st.session_state['fl_df'], hide_index=True, use_container_width=True)
+            
+            col_dl1, col_dl2 = st.columns(2)
+            with col_dl1:
+                if os.path.exists(st.session_state.get('fl_zip', '')):
+                    with open(st.session_state['fl_zip'], "rb") as f:
+                        st.download_button("📥 Unduh Kumpulan PDF (ZIP)", data=f, file_name=st.session_state['fl_zip'], mime="application/zip", type="primary", use_container_width=True)
+            with col_dl2:
+                if os.path.exists(st.session_state.get('fl_excel', '')):
+                    with open(st.session_state['fl_excel'], "rb") as f:
+                        st.download_button("📊 Unduh Rekap Total FeesListing (Excel)", data=f, file_name=st.session_state['fl_excel'], mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+
+
+# ------------------------------------------------------------
+# TAB 4: BUILDER LAPORAN TRIWULAN
+# ------------------------------------------------------------
+with tab4:
     st.subheader("Otomatisasi Peta Akun & Format Triwulan")
     
     triwulan_options = {
