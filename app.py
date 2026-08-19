@@ -690,40 +690,6 @@ def generate_template_acc_bytes():
     wb.save(output)
     return output.getvalue()
 
-# --- FUNGSI EKSTRAKSI DATA CCFM DARI TRADEREGISTRYSUMMARY ---
-def extract_ccfm_data_from_pdf(pdf_path):
-    results = []
-    try:
-        reader = pypdf.PdfReader(pdf_path)
-        text = "".join(page.extract_text() + "\n" for page in reader.pages)
-        lines = [L.strip() for L in text.split('\n')]
-        
-        i = 0
-        while i < len(lines):
-            L = lines[i]
-            
-            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
-                account = lines[i+2]
-                if account.upper().startswith('CCFM'):
-                    try:
-                        qty = float(lines[i+4].replace(',', ''))
-                        commodity = lines[i+3]
-                        contract_month = lines[i+5]
-                        results.append({
-                            'Account': account,
-                            'Commodity Code': commodity,
-                            'Contract Month': contract_month,
-                            'Qty (Lot)': qty
-                        })
-                    except ValueError:
-                        pass
-                i += 8
-            else:
-                i += 1
-    except Exception as e:
-        pass
-    return results
-
 
 # ============================================================
 # 3. GUI STREAMLIT MAIN
@@ -1425,7 +1391,6 @@ with tab3:
                 os.makedirs(DIR_TM, exist_ok=True)
                 
                 queries_tm = [q.strip() for q in subject_tm.split(",") if q.strip()]
-                zip_tm_name = "Kumpulan_TradeRegistry_CCFM.zip"
                 
                 with st.status("Sedang memproses email CCFM...", expanded=True) as status:
                     try:
@@ -1475,8 +1440,13 @@ with tab3:
                             if downloaded_tm:
                                 st.write("Mengekstrak data Account CCFM dari PDF...")
                                 all_tm_data = []
+                                pdf_dates = []
                                 for pdf_path in downloaded_tm:
                                     try:
+                                        d_key = get_date_from_pdf(os.path.basename(pdf_path))
+                                        if d_key:
+                                            pdf_dates.append(d_key)
+                                        
                                         reader = pypdf.PdfReader(pdf_path)
                                         text = "".join(page.extract_text() + "\n" for page in reader.pages)
                                         lines = [L.strip() for L in text.split('\n')]
@@ -1491,10 +1461,16 @@ with tab3:
                                                         qty = float(lines[i+4].replace(',', ''))
                                                         commodity = lines[i+3]
                                                         contract_month = lines[i+5]
+                                                        price = float(lines[i+6].replace(',', ''))
+                                                        settle_price = float(lines[i+7].replace(',', ''))
+                                                        
                                                         all_tm_data.append({
+                                                            'Tanggal Transaksi': d_key if d_key else 'Unknown',
                                                             'Account': account,
                                                             'Commodity Code': commodity,
                                                             'Contract Month': contract_month,
+                                                            'Price': price,
+                                                            'Settlement Price': settle_price,
                                                             'Qty (Lot)': qty
                                                         })
                                                     except ValueError:
@@ -1505,14 +1481,36 @@ with tab3:
                                     except Exception as ex_pdf:
                                         pass
                                     
+                                if pdf_dates:
+                                    pdf_dates = sorted(list(set(pdf_dates)))
+                                    min_date = pdf_dates[0]
+                                    max_date = pdf_dates[-1]
+                                    thn = min_date[:4]
+                                    bln = min_date[4:6]
+                                    dict_bulan = {'01':'JANUARI', '02':'FEBRUARI', '03':'MARET', '04':'APRIL', '05':'MEI', '06':'JUNI', '07':'JULI', '08':'AGUSTUS', '09':'SEPTEMBER', '10':'OKTOBER', '11':'NOVEMBER', '12':'DESEMBER'}
+                                    nama_bln = dict_bulan.get(bln, "")
+                                    
+                                    if min_date == max_date:
+                                        tgl_str = f"{min_date[6:8]} {nama_bln} {thn}"
+                                    else:
+                                        if min_date[4:6] == max_date[4:6]: 
+                                            tgl_str = f"{min_date[6:8]}-{max_date[6:8]} {nama_bln} {thn}"
+                                        else:
+                                            tgl_str = f"{min_date[6:8]} {dict_bulan.get(min_date[4:6])} - {max_date[6:8]} {dict_bulan.get(max_date[4:6])} {thn}"
+                                    
+                                    zip_tm_name = f"Kumpulan Trade Registry Multi {tgl_str}.zip"
+                                    excel_tm_name = f"Rekap Multi {tgl_str}.xlsx"
+                                else:
+                                    zip_tm_name = "Kumpulan Trade Registry Multi.zip"
+                                    excel_tm_name = "Rekap Multi.xlsx"
+
                                 if all_tm_data:
                                     df_tm = pd.DataFrame(all_tm_data)
-                                    df_summary = df_tm.groupby(['Account', 'Commodity Code', 'Contract Month'])['Qty (Lot)'].sum().reset_index()
+                                    df_summary = df_tm.groupby(['Tanggal Transaksi', 'Account', 'Commodity Code', 'Contract Month', 'Price', 'Settlement Price'])['Qty (Lot)'].sum().reset_index()
                                     
                                     total_qty_tm = df_summary['Qty (Lot)'].sum()
-                                    df_summary.loc[len(df_summary)] = ["TOTAL KESELURUHAN", "", "", total_qty_tm]
+                                    df_summary.loc[len(df_summary)] = ["TOTAL KESELURUHAN", "", "", "", "", "", total_qty_tm]
                                     
-                                    excel_tm_name = "Rekap_Total_CCFM.xlsx"
                                     df_summary.to_excel(excel_tm_name, index=False)
                                     
                                     st.session_state['tm_df'] = df_summary
@@ -1542,7 +1540,7 @@ with tab3:
             with col_dl2:
                 if os.path.exists(st.session_state.get('tm_excel', '')):
                     with open(st.session_state['tm_excel'], "rb") as f:
-                        st.download_button("📊 Unduh Rekap Total CCFM (Excel)", data=f, file_name=st.session_state['tm_excel'], mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+                        st.download_button(f"📊 Unduh Rekap Excel", data=f, file_name=st.session_state['tm_excel'], mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 
 # ------------------------------------------------------------
