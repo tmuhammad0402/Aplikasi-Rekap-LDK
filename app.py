@@ -690,49 +690,36 @@ def generate_template_acc_bytes():
     wb.save(output)
     return output.getvalue()
 
-# --- FUNGSI EKSTRAKSI DATA FEESLISTING (BBJ PRIMER) ---
-def extract_fees_listing_data(pdf_path):
+# --- FUNGSI EKSTRAKSI DATA CCFM DARI TRADEREGISTRYSUMMARY ---
+def extract_ccfm_data_from_pdf(pdf_path):
     results = []
     try:
         reader = pypdf.PdfReader(pdf_path)
         text = "".join(page.extract_text() + "\n" for page in reader.pages)
+        lines = [L.strip() for L in text.split('\n')]
         
-        # Cari blok BBJ Primer
-        block_match = re.search(r'BBJ Primer(.*?)BBJ SPA', text, re.IGNORECASE | re.DOTALL)
-        if not block_match:
-            block_match = re.search(r'BBJ Primer(.*?)Total', text, re.IGNORECASE | re.DOTALL)
-        
-        if block_match:
-            block = block_match.group(1)
-            # Bersihkan newline
-            clean_block = re.sub(r'[\n|\r|]', ' ', block)
+        i = 0
+        while i < len(lines):
+            L = lines[i]
             
-            num_pat = r'\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?'
-            # Cari Pola: [Kode Produk] [5 angka/fee] [Qty] [Total]
-            # Karena Qty adalah urutan angka ke-5 setelah nama Product
-            pattern = r'([A-Z0-9]{3,15}(?:\s+[A-Z0-9]{1,10})?)\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')\s+(' + num_pat + r')'
-            
-            matches = re.finditer(pattern, clean_block)
-            for m in matches:
-                product = m.group(1).strip()
-                qty_str = m.group(6)
-                
-                # Standarisasi koma/titik untuk diubah jadi Float
-                val_str = re.sub(r'[^\d.,]', '', qty_str)
-                if ',' in val_str and '.' in val_str:
-                    if val_str.rfind(',') > val_str.rfind('.'):
-                        val_str = val_str.replace('.', '').replace(',', '.')
-                    else:
-                        val_str = val_str.replace(',', '')
-                else:
-                    sep = ',' if ',' in val_str else '.' if '.' in val_str else None
-                    if sep:
-                        parts = val_str.split(sep)
-                        val_str = "".join(parts[:-1]) + "." + parts[-1]
-                try:
-                    results.append({'Product': product, 'Qty': float(val_str)})
-                except:
-                    pass
+            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
+                account = lines[i+2]
+                if account.upper().startswith('CCFM'):
+                    try:
+                        qty = float(lines[i+4].replace(',', ''))
+                        commodity = lines[i+3]
+                        contract_month = lines[i+5]
+                        results.append({
+                            'Account': account,
+                            'Commodity Code': commodity,
+                            'Contract Month': contract_month,
+                            'Qty (Lot)': qty
+                        })
+                    except ValueError:
+                        pass
+                i += 8
+            else:
+                i += 1
     except Exception as e:
         pass
     return results
@@ -1413,53 +1400,53 @@ with tab2:
                 st.download_button("🎉 Unduh Template LDK (Excel)", data=f, file_name=file_output, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 # ------------------------------------------------------------
-# TAB 3: TOTAL MULTI (FEES LISTING)
+# TAB 3: TOTAL MULTI (CCFM TradeRegistrySummary)
 # ------------------------------------------------------------
 with tab3:
-    st.subheader("Unduh & Gabung Total Qty FeesListing")
+    st.subheader("Unduh & Gabung Total Qty CCFM (TradeRegistrySummary)")
     with st.container(border=True):
-        col_fl1, col_fl2 = st.columns(2)
-        with col_fl1:
-            email_fl = st.text_input("Akun Email Google (FeesListing)", value="centralfutures098@gmail.com", key="email_fl")
-            pass_fl = st.secrets.get("GMAIL_PASSWORD", "")
-            filter_fl = st.text_input("Filter Nama File", value="FeesListing", key="filter_fl", help="Ketik 'all' untuk mengunduh seluruh file")
-        with col_fl2:
-            server_fl = st.text_input("Server IMAP Google (FeesListing)", value="imap.gmail.com", key="server_fl")
-            subject_fl = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8", key="subj_fl")
+        col_tm1, col_tm2 = st.columns(2)
+        with col_tm1:
+            email_tm = st.text_input("Akun Email Google", value="centralfutures098@gmail.com", key="email_tm")
+            pass_tm = st.secrets.get("GMAIL_PASSWORD", "")
+            filter_tm = st.text_input("Filter Nama File", value="traderegistrysummary", key="filter_tm", help="Ketik 'all' untuk mengunduh seluruh file")
+        with col_tm2:
+            server_tm = st.text_input("Server IMAP Google", value="imap.gmail.com", key="server_tm")
+            subject_tm = st.text_input("Subjek Pencarian KBI (pisahkan koma)", value="Clearing House Report AK 098 2026-8", key="subj_tm")
             
-        if st.button("🚀 Mulai Ekstraksi FeesListing", type="primary", use_container_width=True, key="btn_fl"):
-            if not pass_fl:
+        if st.button("🚀 Mulai Ekstraksi CCFM", type="primary", use_container_width=True, key="btn_tm"):
+            if not pass_tm:
                 st.error("⚠️ Password Gmail belum dikonfigurasi di Streamlit Secrets!")
-            elif not subject_fl:
+            elif not subject_tm:
                 st.warning("Pencarian dibatalkan karena subjek kosong.")
             else:
-                DIR_FL = "lampiran_feeslisting_temp"
-                if os.path.exists(DIR_FL): shutil.rmtree(DIR_FL)
-                os.makedirs(DIR_FL, exist_ok=True)
+                DIR_TM = "lampiran_ccfm_temp"
+                if os.path.exists(DIR_TM): shutil.rmtree(DIR_TM)
+                os.makedirs(DIR_TM, exist_ok=True)
                 
-                queries_fl = [q.strip() for q in subject_fl.split(",") if q.strip()]
-                zip_fl_name = "Kumpulan_FeesListing.zip"
+                queries_tm = [q.strip() for q in subject_tm.split(",") if q.strip()]
+                zip_tm_name = "Kumpulan_TradeRegistry_CCFM.zip"
                 
-                with st.status("Sedang memproses email FeesListing...", expanded=True) as status:
+                with st.status("Sedang memproses email CCFM...", expanded=True) as status:
                     try:
                         st.write("Menghubungkan ke server Gmail IMAP...")
-                        mail_fl = imaplib.IMAP4_SSL(server_fl)
-                        mail_fl.login(email_fl, pass_fl)
-                        mail_fl.select('"INBOX"')
+                        mail_tm = imaplib.IMAP4_SSL(server_tm)
+                        mail_tm.login(email_tm, pass_tm)
+                        mail_tm.select('"INBOX"')
                         
                         email_ids = set()
-                        for q in queries_fl:
-                            email_ids.update(do_imap_search(mail_fl, q))
+                        for q in queries_tm:
+                            email_ids.update(do_imap_search(mail_tm, q))
                             
                         if not email_ids:
-                            status.update(label="Tidak ada email FeesListing ditemukan.", state="error")
+                            status.update(label="Tidak ada email terkait ditemukan.", state="error")
                         else:
-                            downloaded_fl = []
+                            downloaded_tm = []
                             progress_bar = st.progress(0)
                             sorted_eids = sorted(list(email_ids), key=lambda x: int(x))
                             
                             for idx, eid in enumerate(sorted_eids):
-                                res, msg_data = mail_fl.fetch(eid, "(RFC822)")
+                                res, msg_data = mail_tm.fetch(eid, "(RFC822)")
                                 if res == "OK":
                                     for response_part in msg_data:
                                         if isinstance(response_part, tuple):
@@ -1470,68 +1457,92 @@ with tab3:
                                                     fname_raw = part.get_filename()
                                                     if fname_raw:
                                                         fname = decode_mime_header(fname_raw)
-                                                        filter_val = filter_fl.strip().lower()
+                                                        filter_val = filter_tm.strip().lower()
                                                         
-                                                        # Hanya memproses file yang lolos filter input teks dan berakhiran .pdf
                                                         if (filter_val == 'all' or filter_val in fname.lower()) and fname.lower().endswith(".pdf"):
                                                             safe_fname = clean_filename(fname)
                                                             base, counter = os.path.splitext(safe_fname)[0], 1
-                                                            filepath = os.path.join(DIR_FL, safe_fname)
+                                                            filepath = os.path.join(DIR_TM, safe_fname)
                                                             while os.path.exists(filepath):
-                                                                filepath = os.path.join(DIR_FL, f"{base}_{counter}.pdf")
+                                                                filepath = os.path.join(DIR_TM, f"{base}_{counter}.pdf")
                                                                 counter += 1
                                                             with open(filepath, "wb") as f:
                                                                 payload = part.get_payload(decode=True)
                                                                 f.write(payload if payload else b"")
-                                                            downloaded_fl.append(filepath)
+                                                            downloaded_tm.append(filepath)
                                 progress_bar.progress((idx + 1) / len(sorted_eids))
                                 
-                            if downloaded_fl:
-                                st.write("Mengekstrak data Product BBJ Primer dari FeesListing...")
-                                all_fl_data = []
-                                for pdf_path in downloaded_fl:
-                                    extracted = extract_fees_listing_data(pdf_path)
-                                    all_fl_data.extend(extracted)
+                            if downloaded_tm:
+                                st.write("Mengekstrak data Account CCFM dari PDF...")
+                                all_tm_data = []
+                                for pdf_path in downloaded_tm:
+                                    try:
+                                        reader = pypdf.PdfReader(pdf_path)
+                                        text = "".join(page.extract_text() + "\n" for page in reader.pages)
+                                        lines = [L.strip() for L in text.split('\n')]
+                                        
+                                        i = 0
+                                        while i < len(lines):
+                                            L = lines[i]
+                                            if re.match(r'^\d{1,2}:\d{2}:\d{2}$', L) and i + 7 < len(lines) and re.match(r'^\d{1,2}:\d{2}:\d{2}$', lines[i+1]):
+                                                account = lines[i+2]
+                                                if account.upper().startswith('CCFM'):
+                                                    try:
+                                                        qty = float(lines[i+4].replace(',', ''))
+                                                        commodity = lines[i+3]
+                                                        contract_month = lines[i+5]
+                                                        all_tm_data.append({
+                                                            'Account': account,
+                                                            'Commodity Code': commodity,
+                                                            'Contract Month': contract_month,
+                                                            'Qty (Lot)': qty
+                                                        })
+                                                    except ValueError:
+                                                        pass
+                                                i += 8
+                                            else:
+                                                i += 1
+                                    except Exception as ex_pdf:
+                                        pass
                                     
-                                if all_fl_data:
-                                    df_fl = pd.DataFrame(all_fl_data)
-                                    df_summary = df_fl.groupby('Product')['Qty'].sum().reset_index()
+                                if all_tm_data:
+                                    df_tm = pd.DataFrame(all_tm_data)
+                                    df_summary = df_tm.groupby(['Account', 'Commodity Code', 'Contract Month'])['Qty (Lot)'].sum().reset_index()
                                     
-                                    # Menambahkan total qty
-                                    total_qty_fl = df_summary['Qty'].sum()
-                                    df_summary.loc[len(df_summary)] = ["TOTAL KESELURUHAN", total_qty_fl]
+                                    total_qty_tm = df_summary['Qty (Lot)'].sum()
+                                    df_summary.loc[len(df_summary)] = ["TOTAL KESELURUHAN", "", "", total_qty_tm]
                                     
-                                    excel_fl_name = "Rekap_Total_FeesListing.xlsx"
-                                    df_summary.to_excel(excel_fl_name, index=False)
+                                    excel_tm_name = "Rekap_Total_CCFM.xlsx"
+                                    df_summary.to_excel(excel_tm_name, index=False)
                                     
-                                    st.session_state['fl_df'] = df_summary
-                                    st.session_state['fl_excel'] = excel_fl_name
+                                    st.session_state['tm_df'] = df_summary
+                                    st.session_state['tm_excel'] = excel_tm_name
                                     
-                                shutil.make_archive(zip_fl_name.replace('.zip', ''), 'zip', DIR_FL)
-                                st.session_state['fl_zip'] = zip_fl_name
-                                status.update(label=f"Selesai! {len(downloaded_fl)} file FeesListing diproses.", state="complete")
+                                shutil.make_archive(zip_tm_name.replace('.zip', ''), 'zip', DIR_TM)
+                                st.session_state['tm_zip'] = zip_tm_name
+                                status.update(label=f"Selesai! {len(downloaded_tm)} file diproses.", state="complete")
                             else:
-                                status.update(label="Tidak ada file PDF FeesListing yang valid ditemukan.", state="error")
+                                status.update(label="Tidak ada file PDF yang valid ditemukan.", state="error")
                     except Exception as e:
-                        status.update(label=f"Error FeesListing: {e}", state="error")
+                        status.update(label=f"Error Ekstraksi: {e}", state="error")
                     finally:
-                        try: mail_fl.close(); mail_fl.logout()
+                        try: mail_tm.close(); mail_tm.logout()
                         except: pass
 
-        if 'fl_df' in st.session_state:
+        if 'tm_df' in st.session_state:
             st.write("---")
-            st.markdown("### 📊 Rekapitulasi Produk (BBJ Primer)")
-            st.dataframe(st.session_state['fl_df'], hide_index=True, use_container_width=True)
+            st.markdown("### 📊 Rekapitulasi QTY CCFM")
+            st.dataframe(st.session_state['tm_df'], hide_index=True, use_container_width=True)
             
             col_dl1, col_dl2 = st.columns(2)
             with col_dl1:
-                if os.path.exists(st.session_state.get('fl_zip', '')):
-                    with open(st.session_state['fl_zip'], "rb") as f:
-                        st.download_button("📥 Unduh Kumpulan PDF (ZIP)", data=f, file_name=st.session_state['fl_zip'], mime="application/zip", type="primary", use_container_width=True)
+                if os.path.exists(st.session_state.get('tm_zip', '')):
+                    with open(st.session_state['tm_zip'], "rb") as f:
+                        st.download_button("📥 Unduh Kumpulan PDF (ZIP)", data=f, file_name=st.session_state['tm_zip'], mime="application/zip", type="primary", use_container_width=True)
             with col_dl2:
-                if os.path.exists(st.session_state.get('fl_excel', '')):
-                    with open(st.session_state['fl_excel'], "rb") as f:
-                        st.download_button("📊 Unduh Rekap Total FeesListing (Excel)", data=f, file_name=st.session_state['fl_excel'], mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+                if os.path.exists(st.session_state.get('tm_excel', '')):
+                    with open(st.session_state['tm_excel'], "rb") as f:
+                        st.download_button("📊 Unduh Rekap Total CCFM (Excel)", data=f, file_name=st.session_state['tm_excel'], mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 
 # ------------------------------------------------------------
