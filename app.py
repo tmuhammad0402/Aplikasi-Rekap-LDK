@@ -74,7 +74,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# === TAMBAHKAN KODE INI UNTUK MENYEMBUNYIKAN WATERMARK & MENU GITHUB ===
+# === TAMBAHKAN KODE INI UNTUK MENYEMBUNYIKAN WATERMARK, MENU & BADGE ===
 hide_streamlit_style = """
             <style>
             /* Menyembunyikan menu di kanan atas (GitHub, Fork, dll) */
@@ -82,11 +82,16 @@ hide_streamlit_style = """
             header {visibility: hidden;}
             [data-testid="stToolbar"] {visibility: hidden !important;}
             
-            /* Menyembunyikan footer (Hosted with Streamlit / Created by) */
+            /* Menyembunyikan footer (Hosted with Streamlit) */
             footer {visibility: hidden;}
             .stApp > header {
                 background-color: transparent;
             }
+            
+            /* Menyembunyikan Viewer Badge (Logo Merah Streamlit & Profile di Kanan Bawah) */
+            .viewerBadge_container__1QSob {display: none !important;}
+            [class^="viewerBadge_container"] {display: none !important;}
+            [class^="styles_viewerBadge"] {display: none !important;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
