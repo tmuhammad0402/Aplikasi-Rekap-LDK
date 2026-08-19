@@ -1105,6 +1105,8 @@ with tab1:
                                 if d_key: pdf_dict[d_key] = f_path
                                 
                             elif f_name.lower().endswith(('.xlsx', '.xls')):
+                                if "GABUNGAN" in f_name.upper(): continue # MENGABAIKAN FILE GABUNGAN
+                                
                                 d_key = get_date_from_excel(f_name)
                                 if d_key:
                                     score = 0
